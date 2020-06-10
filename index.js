@@ -630,10 +630,10 @@
                      }
                   }
                } else {
-                  throw 'invalid-package';
+                  throw 'That package is invalid!';
                }
             } else {
-               return 'package-unavailable';
+               throw 'That package does not exist!';
             }
          }
       },
