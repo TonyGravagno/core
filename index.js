@@ -1,709 +1,398 @@
-/* grakkit index file */
 (function () {
-   'use strict';
-
-   /* shortcuts to useful shit */
-   const global = globalThis;
-   const server = org.bukkit.Bukkit.getServer();
-   const plugin = server.getPluginManager().getPlugin('grakkit');
-
-   /* core functions */
-   const core = {
-      /* async and/or timed code execution */
-      async: {
-         /* run task immediately */
-         immediate: (script) => {
-            return server.getScheduler().runTask(plugin, core.async.runnable(script));
+   const µ = (µ, self) => eval(µ);
+   (function () {
+      const global = globalThis;
+      const server = Java.type('org.bukkit.Bukkit').getServer();
+      const core = {
+         circular: function () {},
+         clear: (io) => {
+            io.isDirectory() && [ ...io.listFiles() ].forEach(core.clear);
+            io.delete();
          },
-
-         /* run task with a timer */
-         interval: (script, interval) => {
-            return server.getScheduler().runTaskTimer(plugin, core.async.runnable(script), 0, interval);
+         color: (text) => {
+            return text.split('&').join('\xA7').split('\xA7\xA7').join('&');
          },
-
-         /* create a runnable from function */
-         runnable: (script) => {
-            return new (Java.extend(java.lang.Runnable))({ run: script });
+         command: (options) => {
+            const name = options.name;
+            const input = Object.assign(
+               {
+                  prefix: 'grakkit',
+                  usage: `/${name} <...args>`,
+                  description: '{ description }',
+                  execute: () => {},
+                  tabComplete: () => []
+               },
+               options
+            );
+            core.session.commands[name] = { execute: input.execute, tabComplete: input.tabComplete };
+            const prefix = `(player,args)=>core.session.commands[${JSON.stringify(name)}]`;
+            const suffix = "(player,...args.split(' '))";
+            const status = core.plugin.register(
+               input.prefix,
+               input.name,
+               input.usage,
+               input.description,
+               `${prefix}.execute${suffix}`,
+               `${prefix}.tabComplete${suffix}`
+            );
+            return status ? name : `${prefix}:${name}`;
          },
-
-         /* run task with a delay */
-         timeout: (script, delay) => {
-            return server.getScheduler().runTaskLater(plugin, core.async.runnable(script), delay);
-         }
-      },
-
-      /* circular reference placeholder */
-      circular: function Circular () {},
-
-      /* remove all files from folder recursively */
-      clear: (folder) => {
-         const files = folder.listFiles();
-         if (files) {
-            for (let index = 0; index < files.length; ++index) {
-               const file = files[index];
-               file.isDirectory() ? core.clear(file) : file.delete();
-            }
-         }
-         folder.delete();
-      },
-
-      /* convert essentials-style color codes to vanilla color codes */
-      color: (text) => {
-         return text.split('&').join('\xA7').split('\xA7\xA7').join('&');
-      },
-
-      /* register custom commands (awesome) */
-      command: (options) => {
-         const name = options.name;
-         const input = Object.assign(
-            {
-               prefix: 'grakkit',
-               usage: `/${name} <...args>`,
-               description: 'A Minecraft command',
-               execute: () => {},
-               tabComplete: () => []
-            },
-            options
-         );
-         core.commands[name] = { execute: input.execute, tabComplete: input.tabComplete };
-         const prefix = `(player,args)=>core.commands[${JSON.stringify(name)}]`;
-         const suffix = "(player,...args.split(' '))";
-         const status = plugin.register(
-            input.prefix,
-            input.name,
-            input.usage,
-            input.description,
-            `${prefix}.execute${suffix}`,
-            `${prefix}.tabComplete${suffix}`
-         );
-         return status ? name : `${prefix}:${name}`;
-      },
-
-      /* custom command database */
-      commands: {},
-
-      /* namespaced-keyed persistent data storage access */
-      data: (namespace, key) => {
-         const store = core.store({ data: {}, [namespace]: {} });
-         const file = core.folder(core.root, 'data', namespace).file(`${key}.json`);
-         return store[key] || (store[key] = JSON.parse(file.read() || '{}'));
-      },
-
-      /* object pretty printer */
-      display: (object) => {
-         if (object && object.constructor === core.circular) {
-            return 'Circular';
-         } else {
-            const type = toString.apply(object);
-            switch (type) {
-               case '[object Object]':
-               case '[object Function]':
-               case '[foreign HostFunction]':
-                  return type.split(' ')[1].slice(0, -1);
-               case '[object Array]':
-                  return `[ ${core.serialize(object).map(core.display).join(', ')} ]`;
-               case '[foreign HostObject]':
-                  const output = `${object}`;
-                  if (!output || output.startsWith('class ')) {
-                     return object.getCanonicalName ? object.getCanonicalName() : object.class.getCanonicalName();
-                  } else {
-                     return output;
-                  }
-               default:
-                  switch (typeof object) {
-                     case 'function':
-                        return 'Function';
-                     case 'string':
-                        return `"${object}"`;
-                     case 'symbol':
-                        return `@@${`${object}`.slice(7, -1)}`;
-                     default:
-                        return `${object}`;
-                  }
-            }
-         }
-      },
-
-      /* autofill parent folder chain for given file path */
-      ensure: (path) => {
-         if (path.make) {
-            path.make();
-            return path;
-         } else {
-            core.traverse([], path, {
-               mode: 'array',
-               post: (context) => {
-                  const file = core.stat(...context).file();
-                  file.exists() || file.mkdir();
-               }
-            });
-         }
-      },
-
-      /* isolated-context code evaluation */
-      eval: (µ, self) => {
-         return eval(µ);
-      },
-
-      /* listen for server events */
-      event: (name, listener) => {
-         const store = core.store({ event: {}, [name]: [] });
-         if (store.push(listener) === 1) {
-            server
-               .getPluginManager()
-               .registerEvent(
-                  core.eval(name).class,
-                  new (Java.extend(org.bukkit.event.Listener, {}))(),
-                  org.bukkit.event.EventPriority.HIGHEST,
-                  (info, data) => store.forEach((listener) => listener(data)),
-                  plugin
-               );
-         }
-      },
-
-      /* make web requests */
-      fetch: (location) => {
-         return new Promise((resolve, reject) => {
-            core.async.immediate(() => {
-               try {
-                  const conn = new java.net.URL(location).openConnection();
-                  conn.setDoOutput(true);
-                  conn.setRequestMethod('GET');
-                  conn.setInstanceFollowRedirects(true);
-                  if (conn.getResponseCode() === 200) {
-                     resolve({
-                        stream: () => {
-                           return conn.getInputStream();
-                        },
-                        response: () => {
-                           return new java.util.Scanner(conn.getInputStream()).useDelimiter('\\A').next();
+         data: (path, standby) => {
+            const store = core.session.data;
+            const file = core.file(core.root, `data/${path}.json`);
+            return store[path] || (store[path] = Object.assign(standby || {}, JSON.parse(file.read() || '{}')));
+         },
+         error: (error) => {
+            let type = 'Error';
+            let message = `${error}`;
+            if (error.stack) {
+               message = error.message;
+               type = error.stack.split('\n')[0].split(' ')[0].slice(0, -1);
+               switch (type) {
+                  case 'TypeError':
+                     message = message.split('\n')[0];
+                     if (message.startsWith('invokeMember')) {
+                        const reason = message.split('failed due to: ')[1];
+                        if (reason.startsWith('no applicable overload found')) {
+                           const sets = reason.split('overloads:')[1].split(']],')[0].split(')]').map((set) => {
+                              return `(${set.split('(').slice(1).join('(')})`;
+                           });
+                           message = `Invalid arguments! Expected: ${sets.join(' || ').slice(0, -1)}`;
+                        } else if (reason.startsWith('Arity error')) {
+                           message = `Insufficient arguments! Expected: ${reason.split('-')[1].split(' ')[2]}`;
+                        } else if (reason.startsWith('UnsupportedTypeException')) {
+                           message = 'Invalid arguments!';
+                        } else if (reason.startsWith('Unknown identifier')) {
+                           message = `That method (${reason.split(': ')[1]}) is not a member of its parent!`;
                         }
-                     });
-                  } else {
-                     reject(conn.getResponseCode());
-                  }
-               } catch (error) {
-                  console.log(error);
-               }
-            });
-         });
-      },
-
-      /* file manipulation code */
-      file: (...nodes) => {
-         const file = core.stat(...nodes).file();
-         return {
-            folder: () => {
-               return core.folder(file.getParentFile());
-            },
-            io: () => {
-               return file;
-            },
-            exists: () => {
-               return file.exists();
-            },
-            make: () => {
-               file.exists() || java.nio.file.Files.createFile(file.toPath());
-               return core.file(...nodes);
-            },
-            path: () => {
-               return core.stat(`${file.toPath()}`).path();
-            },
-            read: () => {
-               if (file.exists()) {
-                  const output = [];
-                  const reader = new java.io.BufferedReader(new java.io.FileReader(file));
-                  reader.lines().forEach((line) => output.push(line));
-                  reader.close();
-                  return output.join('');
-               } else {
-                  return '';
-               }
-            },
-            remove: (parent) => {
-               file.exists() && file.delete();
-               if (parent && file.getParentFile().exists()) {
-                  let context = file.getParentFile();
-                  while (context.listFiles().length === 0) {
-                     context.delete();
-                     context = context.getParentFile();
-                  }
-               }
-            },
-            write: (data) => {
-               core.ensure(`${file.getParentFile().getPath()}`.replace(/\\/g, '/').split('/'));
-               file.exists() || java.nio.file.Files.createFile(file.toPath());
-               const writer = new java.io.PrintWriter(new java.io.FileWriter(file));
-               writer.print(data);
-               writer.close();
-            }
-         };
-      },
-
-      /* folder manipulation code */
-      folder: (...nodes) => {
-         const stat = core.stat(...nodes);
-         const path = stat.path();
-         return {
-            file: (name) => {
-               return core.file(...path, name);
-            },
-            folder: (...nodes) => {
-               return core.folder(...path, ...nodes);
-            },
-            io: () => {
-               return stat.file();
-            },
-            exists: () => {
-               return stat.file().exists();
-            },
-            make: () => {
-               stat.file().exists() || stat.file().mkdir();
-               return core.folder(...nodes);
-            },
-            path: () => {
-               return stat.path();
-            },
-            remove: (parent) => {
-               stat.file().exists() && core.clear(stat.file());
-               if (parent && stat.file().getParentFile().exists()) {
-                  let context = stat.file().getParentFile();
-                  while (context.listFiles().length === 0) {
-                     context.delete();
-                     context = context.getParentFile();
-                  }
-               }
-            }
-         };
-      },
-
-      /* tab-completion property list helper */
-      from: (query, array) => {
-         return array.filter((value) => value.includes(query));
-      },
-
-      /* better keys grabber */
-      keys: (object) => {
-         return Object.getOwnPropertyNames(object);
-      },
-
-      /* convert string to lowercase */
-      lc: (string) => {
-         return string.toLowerCase();
-      },
-
-      /* constant value for plugin folder */
-      root: `${plugin.getDataFolder()}`,
-
-      /* remove circular properties recursively from objects */
-      serialize: (object, nullify, nodes) => {
-         let output = null;
-         if (object && typeof object === 'object') {
-            nodes = nodes || [ object ];
-            if (typeof object[Symbol.iterator] === 'function') {
-               output = [];
-               for (let entry of object) {
-                  if (nodes.includes(entry)) output.push(nullify ? null : new core.circular());
-                  else output.push(core.serialize(entry, nullify, [ ...nodes, entry ]));
+                     }
+                     break;
+                  case 'SyntaxError':
+                     message = message.split(' ').slice(1).join(' ').split('\n')[0];
+                     break;
                }
             } else {
-               output = {};
-               for (let entry in object) {
-                  if (nodes.includes(object[entry])) output[entry] = nullify ? null : new core.circular();
-                  else output[entry] = core.serialize(object[entry], nullify, [ ...nodes, object[entry] ]);
+               type = error.split(' ')[0].slice(0, -1);
+               message = error.split(' ').slice(1).join(' ');
+            }
+            return `${type}: ${message}`;
+         },
+         event: (name, listener) => {
+            const store = core.session.events[name] || (core.session.events[name] = []);
+            if (store.push(listener) === 1) {
+               const manager = server.getPluginManager();
+               manager.registerEvent(
+                  Java.type(name).class,
+                  new (Java.extend(Java.type('org.bukkit.event.Listener'), {}))(),
+                  Java.type('org.bukkit.event.EventPriority').HIGHEST,
+                  (info, event) => store.forEach((listener) => listener(event)),
+                  core.plugin
+               );
+            }
+         },
+         file: (...nodes) => {
+            const io = java.nio.file.Path.of(...nodes).toFile();
+            return {
+               add: () => {
+                  core.parent(io);
+                  io.exists() || java.nio.file.Files.createFile(io.toPath());
+                  return io;
+               },
+               dir: () => {
+                  core.parent(io);
+                  io.exists() || io.mkdir();
+                  return io;
+               },
+               get exists () {
+                  return io.exists();
+               },
+               get extension () {
+                  return io.getPath().replace(/[\\]/g, '/').split('/').slice(-1)[0].split('.')[1] || null;
+               },
+               get io () {
+                  return io;
+               },
+               get parent () {
+                  return core.file(io.getParentFile().getPath());
+               },
+               get path () {
+                  return io.getPath().replace(/[\\]/g, '/');
+               },
+               read: () => {
+                  try {
+                     const output = [];
+                     const reader = new java.io.BufferedReader(new java.io.FileReader(io));
+                     reader.lines().forEach((line) => output.push(line));
+                     reader.close();
+                     return output.join('');
+                  } catch (error) {
+                     return null;
+                  }
+               },
+               remove: () => {
+                  io.exists() && core.clear(io);
+                  let context = io.getParentFile();
+                  if (context && context.exists()) {
+                     while (context && !context.listFiles()[0]) {
+                        context.delete();
+                        context = context.getParentFile();
+                     }
+                  }
+                  return io;
+               },
+               write: (data) => {
+                  try {
+                     const writer = new java.io.PrintWriter(new java.io.FileWriter(io));
+                     writer.print(data);
+                     writer.close();
+                     return true;
+                  } catch (error) {
+                     return false;
+                  }
                }
+            };
+         },
+         fetch: (location, callback) => {
+            const conn = new java.net.URL(location).openConnection();
+            conn.setDoOutput(true);
+            conn.setRequestMethod('GET');
+            conn.setInstanceFollowRedirects(true);
+            if (conn.getResponseCode() === 200) {
+               callback({
+                  stream: () => {
+                     return conn.getInputStream();
+                  },
+                  text: () => {
+                     return new java.util.Scanner(conn.getInputStream()).useDelimiter('\\A').next();
+                  },
+                  json: () => {
+                     try {
+                        return JSON.parse(new java.util.Scanner(conn.getInputStream()).useDelimiter('\\A').next());
+                     } catch (error) {
+                        return null;
+                     }
+                  }
+               });
+            } else {
+               callback(null, conn.getResponseCode());
             }
-         } else {
-            output = object;
-         }
-         return output;
-      },
-
-      /* path info code */
-      stat: (...nodes) => {
-         const path = java.nio.file.Path.of(...nodes);
-         return {
-            file: () => {
-               return path.toFile();
-            },
-            path: () => {
-               return [ ...`${path}`.replace(/\\/g, '/').split('/') ];
+         },
+         from: (query, array) => {
+            return array.filter((value) => value.includes(query));
+         },
+         import: (source) => {
+            const file = core.file(core.root, `modules/${source}/package.json`);
+            if (file.exists) {
+               let info = undefined;
+               try {
+                  info = JSON.parse(file.read());
+               } catch (error) {
+                  throw `ImportError: "${file.path}" is not a valid JSON file!`;
+               }
+               if (info.main) {
+                  info.main.endsWith('.js') || (info.main += '.js');
+                  const index = core.file(`${file.parent.path}/${info.main}`);
+                  if (index.exists) {
+                     try {
+                        return core.parse(index.io);
+                     } catch (error) {
+                        console.error(error);
+                        throw `ImportError: "${index.path}" threw an error during evaluation!`;
+                     }
+                  } else {
+                     throw `ImportError: "${index.path}" does not exist!`;
+                  }
+               } else {
+                  throw `ImportError: "${file.path}" is not a valid package file!`;
+               }
+            } else {
+               throw `ImportError: "${file.path}" does not exist!`;
             }
-         };
-      },
-
-      /* persistent data storage */
-      store: (state) => {
-         const db = core.store.db || (core.store.db = {});
-         return core.traverse(db, core.keys(state), {
-            mode: 'object',
-            pre: (context, node) => {
-               context[node] || (context[node] = state[node]);
-            }
-         });
-      },
-
-      /* send text to player */
-      text: (player, message, mode, color) => {
-         color !== false && (message = core.color(message));
-         switch (mode) {
-            case 'action':
-               return player.sendActionBar(message);
-            case 'title':
-               return player.sendTitle(...message.split('\n'));
-            default:
-               return player.sendMessage(message);
-         }
-      },
-
-      /* dynamically traverse object along a context path */
-      traverse: (context, nodes, options) => {
-         options || (options = {});
-         for (let node of nodes) {
-            options.pre && options.pre(context, node);
-            switch (options.mode) {
-               case 'string':
-                  context = context + node;
-                  break;
-               case 'array':
-                  context.push(node);
-                  break;
-               case 'object':
-                  context = context[node];
-                  break;
-               case 'function':
-                  context = options.next(context, node);
-                  break;
-            }
-            options.post && options.post(context, node);
-         }
-         return context;
-      },
-
-      /* better values grabber */
-      values: (object) => {
-         return core.keys(object).map((key) => {
-            return object[key];
-         });
-      }
-   };
-
-   /* module-related functions */
-   const module = {
-      /* module getter and updater */
-      apply: (source, current) => {
-         return new Promise((resolve, reject) => {
-            module
-               .repo(source.slice(1))
-               .then((repo) => {
-                  repo
-                     .release()
-                     .then((latest) => {
-                        if (current === latest.data.id) {
-                           reject('repository already up to date.');
+         },
+         install: (source, callback) => {
+            core.fetch(`https://api.github.com/repos/${source}/releases`, (response, error) => {
+               let json = response.json();
+               if (response && json) {
+                  if (json.message) {
+                     console.error(`API - ${json.message}`);
+                     callback(null, 'An API error occured!');
+                  } else {
+                     core.options.channel === 'unsafe' || (json = json.filter((re) => re.draft === false));
+                     core.options.channel === 'main' && (json = json.filter((re) => re.prerelease === false));
+                     if (json[0]) {
+                        if (core.modules[source] === json[0].id) {
+                           callback(null, 'That module is already up to date!');
                         } else {
-                           try {
-                              core.folder(core.root, 'modules', source).remove(true);
-                           } catch (error) {
-                              reject('repo folder could not be removed.');
-                           }
-                           latest
-                              .download()
-                              .then((download) => {
-                                 const target = core.folder(core.root, 'modules', source);
-                                 core.ensure(`${target.io().getParentFile().getPath()}`.replace(/\\/g, '/').split('/'));
+                           core.fetch(json[0].zipball_url, (response) => {
+                              try {
+                                 const stream = new java.util.zip.ZipInputStream(response.stream());
+                                 const downloads = core.file(core.root, 'downloads');
+                                 let entry = undefined;
+                                 let output = undefined;
+                                 downloads.dir();
+                                 while ((entry = stream.getNextEntry())) {
+                                    const file = core.file(downloads.path, entry.getName());
+                                    if (entry.isDirectory()) {
+                                       file.dir();
+                                       output || (output = file);
+                                    } else {
+                                       const target = new java.io.FileOutputStream(file.add());
+                                       stream.transferTo(target);
+                                       target.close();
+                                    }
+                                    stream.closeEntry();
+                                 }
+                                 stream.close();
+                                 const destination = core.file(core.root, 'modules', source).dir();
+                                 [ ...destination.listFiles() ].forEach(core.clear);
                                  java.nio.file.Files.move(
-                                    download.folder.io().toPath(),
-                                    target.io().toPath(),
+                                    output.io.toPath(),
+                                    destination.toPath(),
                                     java.nio.file.StandardCopyOption.REPLACE_EXISTING
                                  );
-                                 resolve(latest.data.id);
-                              })
-                              .catch(() => {
-                                 reject('repository extraction failed.');
-                              });
+                                 output.remove();
+                                 core.modules[source] = json[0].id;
+                                 callback(true);
+                              } catch (error) {
+                                 console.error(`File - ${error}`);
+                                 callback(null, 'A file error occured!');
+                              }
+                           });
                         }
-                     })
-                     .catch(() => {
-                        reject('no releases available in your current release channel.');
-                     });
-               })
-               .catch(() => {
-                  reject('invalid repository.');
-               });
-         });
-      },
-
-      /* module cache system */
-      cache: { stack: [], data: {} },
-
-      /* module traversal context storage */
-      context: [ core.root ],
-
-      /* default module files */
-      default: {
-         index: 'module.exports = (function () {\n   return {\n      /* exports */\n   }\n})();\n',
-         package: '{\n   "main": "./index.js"\n}\n'
-      },
-
-      /* module downloader */
-      download: (location) => {
-         return new Promise((resolve, reject) => {
-            core
-               .fetch(location)
-               .then((output) => {
-                  try {
-                     let entry = null;
-                     let result = null;
-                     const stream = new java.util.zip.ZipInputStream(output.stream());
-                     const downloads = core.folder(core.root, 'downloads').make();
-                     while ((entry = stream.getNextEntry())) {
-                        if (entry.isDirectory()) {
-                           const folder = downloads.folder(entry.getName()).make();
-                           result || (result = folder);
-                        } else {
-                           const target = new java.io.FileOutputStream(downloads.file(entry.getName()).make().io());
-                           stream.transferTo(target);
-                           target.close();
-                        }
-                        stream.closeEntry();
+                     } else {
+                        callback(null, 'Your current release channel has no available downloads!');
                      }
-                     stream.close();
-                     resolve({ folder: result });
-                  } catch (error) {
-                     console.log(error);
                   }
-               })
-               .catch((reason) => {
-                  reject(reason);
-               });
-         });
-      },
-
-      /* module traversal export target */
-      exports: {},
-
-      /* make web requests with output suited to module operations */
-      fetch: (source) => {
-         return new Promise((resolve, reject) => {
-            core
-               .fetch(source)
-               .then((output) => {
-                  const data = JSON.parse(output.response());
-                  return data.message ? reject(data.message) : resolve(data);
-               })
-               .catch((reason) => {
-                  reject(reason);
-               });
-         });
-      },
-
-      /* standardized module information */
-      info: (repo) => {
-         if (repo) {
-            const source = module.source(repo);
-            const folder = core.folder(core.root, 'modules', source);
-            const data = JSON.parse(folder.file('package.json').read() || '{}');
-            const script = data.main ? folder.file(data.main) : null;
-            return {
-               data: data,
-               folder: folder,
-               installed: core.keys(module.list).includes(source),
-               js: script ? script.read() : null,
-               script: script,
-               source: source,
-               valid: data.main ? true : false
-            };
-         } else {
-            const trusted = core.keys(module.trusted);
-            return core.keys(module.list).map((key) => {
-               for (let trustee of trusted) {
-                  if (key === module.trusted[trustee]) {
-                     return trustee;
-                  }
+               } else {
+                  console.error(`HTTP - ${error}`);
+                  callback(null, 'An HTTP error occured!');
                }
-               return key;
             });
-         }
-      },
-
-      /* persistent list of installed modules */
-      list: core.data('grakkit', 'modules', {}),
-
-      /* module parser */
-      parse: (code, source) => {
-         let result = undefined;
-         const context = [ ...module.context ];
-         module.context.push(...source.replace(/\\/g, '/').split('/'));
-         if (!core.stat(...module.context).file().isDirectory()) module.context.pop();
-         try {
-            result = core.eval(code);
-         } catch (error) {
-            console.error(error);
-         }
-         module.context = context;
-         module.exports = {};
-         return result;
-      },
-
-      /* module release download trigger */
-      release: (location) => {
-         return new Promise((resolve, reject) => {
-            module
-               .fetch(location)
-               .then((data) => {
-                  data = data.filter((release) => release.draft === false);
-                  core.options.channel === 'dev' || (data = data.filter((release) => release.prerelease === false));
-                  if (data.length) {
-                     data = data.slice(-1)[0];
-                     resolve({
-                        data: data,
-                        download: () => {
-                           return module.download(data.zipball_url);
-                        }
-                     });
-                  } else {
-                     reject();
-                  }
-               })
-               .catch((reason) => {
-                  reject(reason);
-               });
-         });
-      },
-
-      /* module repo release trigger */
-      repo: (source) => {
-         const base = `https://api.github.com/repos/${source}`;
-         return new Promise((resolve, reject) => {
-            module
-               .fetch(base)
-               .then((data) => {
-                  resolve({
-                     data: data,
-                     release: () => {
-                        return module.release(`${base}/releases`);
+         },
+         get modules () {
+            return core.data('grakkit/modules');
+         },
+         get options () {
+            return core.data('grakkit/options', { channel: 'main', mode: 'manual' });
+         },
+         output: (object) => {
+            if (object && object.constructor === core.circular) {
+               return 'Circular';
+            } else {
+               const type = toString.apply(object);
+               switch (type) {
+                  case '[object Object]':
+                  case '[object Function]':
+                  case '[foreign HostFunction]':
+                     return type.split(' ')[1].slice(0, -1);
+                  case '[object Array]':
+                     return `[ ${core.serialize(object).map(core.output).join(', ')} ]`;
+                  case '[foreign HostObject]':
+                     const output = `${object}`;
+                     if (!output || output.startsWith('class ')) {
+                        return object.getCanonicalName ? object.getCanonicalName() : object.class.getCanonicalName();
+                     } else {
+                        return output;
+                     }
+                  default:
+                     switch (typeof object) {
+                        case 'function':
+                           return 'Function';
+                        case 'string':
+                           return `"${object}"`;
+                        case 'symbol':
+                           return `@@${`${object}`.slice(7, -1)}`;
+                        default:
+                           return `${object}`;
+                     }
+               }
+            }
+         },
+         parent: (io) => {
+            let context = io.getParentFile();
+            if (!context.exists()) {
+               const contexts = [];
+               while (context && !context.exists()) {
+                  contexts.push(context);
+                  context = context.getParentFile();
+               }
+               contexts.reverse().forEach((folder) => folder.mkdir());
+            }
+         },
+         parse: (io) => {
+            const hash = io.hashCode();
+            const cache = core.session.cache;
+            if (cache[hash]) {
+               return cache[hash];
+            } else {
+               let output = undefined;
+               const source = Java.type('org.graalvm.polyglot.Source');
+               const builder = source.newBuilder('js', io).mimeType('application/javascript+module');
+               core.export = (value) => (output = value);
+               try {
+                  core.plugin.context().eval(builder.build());
+                  delete core.export;
+                  return (cache[hash] = output);
+               } catch (error) {
+                  delete core.export;
+                  throw core.error(error);
+               }
+            }
+         },
+         plugin: server.getPluginManager().getPlugin('grakkit'),
+         get root () {
+            return core.plugin.getDataFolder().getPath().replace(/[\\]/g, '/');
+         },
+         serialize: (object, nullify, nodes) => {
+            if (typeof object === 'object') {
+               if (object === null) {
+                  return null;
+               } else {
+                  nodes || (nodes = [ object ]);
+                  let output = typeof object[Symbol.iterator] === 'function' ? [] : {};
+                  Object.keys(object).map((key) => {
+                     const value = object[key];
+                     if (nodes.includes(value)) {
+                        output[key] = nullify ? null : new core.circular();
+                     } else {
+                        output[key] = core.serialize(value, nullify, [ ...nodes, object ]);
                      }
                   });
-               })
-               .catch((reason) => {
-                  reject(reason);
-               });
-         });
-      },
-
-      /* module and local-file require */
-      require: (source) => {
-         source = core.lc(source);
-         if (source.startsWith('./')) {
-            const script = core.folder(...module.context).file(source);
-            const cache = module.cache;
-            const path = script.io().getCanonicalPath();
-            if (cache.data[path]) {
-               return cache.data[path];
-            } else {
-               console.log(`evaluating script: ./${path}`);
-               cache.data[path] = {};
-               if (cache.stack.includes(path)) {
-                  return cache.data[path];
-               } else {
-                  cache.stack.push(path);
-                  return Object.assign(cache.data[path], module.parse(script.read(), source));
-               }
-            }
-         } else {
-            const info = module.info(source);
-            if (info.installed) {
-               if (info.valid) {
-                  const cache = module.cache;
-                  const path = info.script.io().getCanonicalPath();
-                  if (cache.data[path]) {
-                     return cache.data[path];
-                  } else {
-                     console.log(`evaluating script: ./${path}`);
-                     cache.data[path] = {};
-                     if (cache.stack.includes(path)) {
-                        return cache.data[path];
-                     } else {
-                        cache.stack.push(path);
-                        return Object.assign(cache.data[path], module.parse(info.js, `modules/${info.source}`));
-                     }
-                  }
-               } else {
-                  throw 'That package is invalid!';
+                  return output;
                }
             } else {
-               throw 'That package does not exist!';
+               return object;
             }
-         }
-      },
-
-      /* module source formatter */
-      source: (repo) => {
-         return module.list[repo] ? repo : `${module.trusted[repo] || repo.split('/').slice(-2).join('/')}`;
-      },
-
-      /* trusted module list */
-      trusted: {}
-   };
-
-   /* persistent options storage */
-   core.options = core.data('grakkit', 'options');
-
-   /* create exportable index */
-   const index = {
-      core: core,
-      exports: module.exports,
-      global: global,
-      module: module,
-      plugin: plugin,
-      require: module.require,
-      server: server
-   };
-
-   /* export if this code is locally required, else execute refresh-synchronous code */
-   if (global.module) global.module.exports = index;
-   else {
-      /* add command: js */
+         },
+         session: { cache: {}, commands: {}, data: {}, events: {}, modules: [], tasks: [] }
+      };
+      Object.assign(global, { core: core, global: global, server: server });
       core.command({
          name: 'js',
          execute: (player, ...args) => {
             try {
-               let output = null;
-               const result = core.eval(args.join(' '), player);
+               let output = undefined;
+               const result = µ(args.join(' '), player);
                switch (toString.apply(result)) {
                   case '[object Object]':
-                     const names = core.keys(result);
-                     output = `{ ${names.map((name) => `${name}: ${core.display(result[name])}`).join(', ')} }`;
+                     const names = Object.keys(result);
+                     output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
                      break;
                   case '[object Function]':
                      output = `${result}`.replace(/\r/g, '');
                      break;
                   case '[foreign HostFunction]':
                      let input = args.slice(-1)[0].split('.').slice(-1)[0];
-                     input.endsWith(']') && (input = core.eval(input.replace(/.*\[/, '').slice(0, -1)));
-                     output = `hostFunction ${input}() { [native code] }`;
+                     input.endsWith(']') && (input = eval(input.replace(/.*\[/, '').slice(0, -1)));
+                     output = `hostFunction ${input.split(/[|;]/g)[0]}() { [native code] }`;
                      break;
                   default:
-                     output = core.display(result);
+                     output = core.output(result);
                      break;
                }
-               core.text(player, `\u00a77${output}`, 'chat', false);
+               player.sendMessage(`\u00a77${output}`);
             } catch (error) {
-               let type = 'Error';
-               let message = `${error}`;
-               if (error.stack) {
-                  type = error.stack.split('\n')[0].split(' ')[0].slice(0, -1);
-                  switch (type) {
-                     case 'TypeError':
-                        message = error.message.split('\n')[0];
-                        break;
-                     case 'SyntaxError':
-                        message = error.message.split(' ').slice(1).join(' ').split('\n')[0];
-                        break;
-                  }
-               }
-               core.text(player, `\u00a7c${type}: ${message}`, 'chat', false);
+               player.sendMessage(`\u00a7c${core.error(error)}`);
             }
          },
          tabComplete: (player, ...args) => {
@@ -723,304 +412,219 @@
             }
             if (index === nodes.length - 1) {
                const segment = nodes.slice(-1)[0];
-               return core
-                  .keys(context)
-                  .filter((key) => core.lc(key).includes(core.lc(segment)))
+               return Object.getOwnPropertyNames(context)
+                  .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
                   .map((comp) => (input.match(filter) || [ '' ])[0] + [ ...nodes.slice(0, -1), comp ].join('.'));
             } else {
                return [];
             }
          }
       });
-
-      /* add command: module */
       core.command({
          name: 'module',
-         execute: (player, action, repo) => {
-            action && (action = core.lc(action));
-            repo && (repo = core.lc(repo));
-            if (action) {
-               if ([ 'add', 'create', 'remove', 'update' ].includes(action)) {
-                  if (repo) {
-                     if (repo === '*' && [ 'remove', 'update' ].includes(action)) {
-                        let index = 0;
-                        let info = core.keys(module.list);
-                        if (action === 'update') info = info.filter((name) => module.list[name] !== -1);
-                        const loop = () => {
-                           const source = info[index];
-                           ++index;
-                           if (source) {
-                              switch (action) {
-                                 case 'remove':
-                                    core.text(player, `&7module $&e ${source}&f deleting...`);
-                                    try {
-                                       core.folder(core.root, 'modules', source).remove(true);
-                                       delete module.list[source];
-                                       core.text(player, `&7module $&e ${source}&f deleted.`);
-                                    } catch (error) {
-                                       core.text(player, `&7module $&e ${source}&c repo folder could not be removed.`);
-                                    }
-                                    loop();
-                                    break;
-                                 case 'update':
-                                    if (module.list[source] !== -1) {
-                                       core.text(player, `&7module $&e ${source}&f updating...`);
-                                       module
-                                          .apply(source, module.list[source])
-                                          .then((data) => {
-                                             module.list[source] = data;
-                                             core.text(player, `&7module $&e ${source}&f updated.`);
-                                             loop();
-                                          })
-                                          .catch((error) => {
-                                             core.text(player, `&7module $&e ${source}&c ${error}`);
-                                             loop();
-                                          });
-                                    } else {
-                                       loop();
-                                    }
-                                    break;
-                              }
-                           } else if (index < info.length) {
-                              loop();
-                           } else if (info.length === 0) {
-                              core.text(player, `&7module $&c there are no modules to ${action}.`);
-                           } else {
-                              core.folder(core.root, 'downloads').remove();
-                           }
-                        };
-                        loop();
-                     } else {
-                        let source = null;
-                        let installed = null;
-                        repo = repo.replace(/\\/g, '/');
-                        switch (action) {
-                           case 'add':
-                              source = `${module.trusted[repo] || repo.split('/').slice(-2).join('/')}`;
-                              installed = core.keys(module.list).includes(source);
-                              if (installed) {
-                                 core.text(player, `&7module $&e ${source}&c repository already installed.`);
-                              } else {
-                                 core.text(player, `&7module $&e ${source}&f installing...`);
-                                 module
-                                    .apply(source)
-                                    .then((data) => {
-                                       module.list[source] = data;
-                                       core.text(player, `&7module $&e ${source}&f installed.`);
-                                       core.folder(core.root, 'downloads').remove();
-                                    })
-                                    .catch((error) => {
-                                       core.text(player, `&7module $&e ${source}&c ${error}`);
-                                       core.folder(core.root, 'downloads').remove();
-                                    });
-                              }
-                              break;
-                           case 'create':
-                              source = repo.replace(/.*\//g, '');
-                              installed = core.keys(module.list).includes(source);
-                              if (installed) {
-                                 core.text(player, `&7module $&e ${source}&c repository already installed.`);
-                              } else {
-                                 core.text(player, `&7module $&e ${source}&f creating...`);
-                                 try {
-                                    const folder = core.folder(core.root, 'modules', source);
-                                    folder.file('index.js').write(module.default.index);
-                                    folder.file('package.json').write(module.default.package);
-                                    module.list[source] = -1;
-                                    core.text(player, `&7module $&e ${source}&f created.`);
-                                 } catch (error) {
-                                    core.text(player, `&7module $&e ${source}&c repo folder could not be created.`);
-                                 }
-                              }
-                              break;
-                           case 'remove':
-                              source = module.source(repo);
-                              installed = core.keys(module.list).includes(source);
-                              if (installed) {
-                                 core.text(player, `&7module $&e ${source}&f deleting...`);
-                                 try {
-                                    core.folder(core.root, 'modules', source).remove(true);
-                                    delete module.list[source];
-                                    core.text(player, `&7module $&e ${source}&f deleted.`);
-                                 } catch (error) {
-                                    core.text(player, `&7module $&e ${source}&c repo folder could not be removed.`);
-                                 }
-                              } else {
-                                 core.text(player, `&7module $&e ${source}&c repository not already installed.`);
-                              }
-                              break;
-                           case 'update':
-                              source = module.source(repo);
-                              installed = core.keys(module.list).includes(source);
-                              if (installed) {
-                                 if (module.list[source] === -1) {
-                                    core.text(player, `&7module $&e ${source}&c cannot update a local module.`);
-                                 } else {
-                                    core.text(player, `&7module $&e ${source}&f updating...`);
-                                    module
-                                       .apply(source, module.list[source])
-                                       .then((data) => {
-                                          module.list[source] = data;
-                                          core.text(player, `&7module $&e ${source}&f updated.`);
-                                          core.folder(core.root, 'downloads').remove();
-                                       })
-                                       .catch((error) => {
-                                          core.text(player, `&7module $&e ${source}&c ${error}`);
-                                          core.folder(core.root, 'downloads').remove();
-                                       });
-                                 }
-                              } else {
-                                 core.text(player, `&7module $&e ${source}&c repository not installed.`);
-                              }
-                              break;
-                        }
-                     }
-                  } else {
-                     core.text(player, `&7module $&c no repository specified.`);
-                  }
-               } else if (action === 'list') {
-                  let keys = core.keys(module.list);
-                  if (keys.length === 0) {
-                     core.text(player, `&7module $&c there are no modules to list.`);
-                  } else {
-                     core.text(player, `&7module $&f installed modules...`);
-                     keys.forEach((key) => core.text(player, `&7module $&e ${key}&f [${module.list[key]}]`));
-                  }
-               } else if (action === 'channel') {
-                  if (repo) {
-                     if ([ 'main', 'dev' ].includes(repo)) {
-                        core.options.channel = repo;
-                        core.text(player, '&7module $&f channel updated.');
-                     } else {
-                        core.text(player, '&7module $&c invalid channel.');
-                     }
-                  } else {
-                     core.text(player, '&7module $&c no channel specified.');
-                  }
-               } else {
-                  core.text(player, '&7module $&c invalid action.');
-               }
-            } else {
-               core.text(player, '&7module $&c no action specified.');
-            }
-         },
-         tabComplete: (player, action, repo, extra) => {
-            action && (action = core.lc(action));
-            repo && (repo = core.lc(repo));
-            if (extra !== undefined) {
-               return [];
-            } else if (repo !== undefined) {
-               switch (action) {
+         execute: (player, option, value) => {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (option) {
+               const keys = Object.keys(core.modules);
+               switch (option) {
                   case 'add':
-                     return core.from(repo, core.keys(module.trusted));
                   case 'remove':
                   case 'update':
-                     let info = core.keys(module.list);
-                     if (action === 'update') info = info.filter((name) => module.list[name] !== -1);
-                     return [ ...core.from(repo, info), '*' ];
+                     if (value === '*') {
+                        if (option === 'add') {
+                           player.sendMessage('\u00a77One sec, just need to download the entire GitHub database...');
+                        } else {
+                           if (keys[0]) {
+                              switch (option) {
+                                 case 'remove':
+                                    player.sendMessage('\u00a77Deleting...');
+                                    keys.forEach((value) => {
+                                       delete core.modules[value];
+                                       core.file(core.root, `modules/${value}`).remove();
+                                    });
+                                    player.sendMessage('\u00a77Modules deleted.');
+                                    break;
+                                 case 'update':
+                                    player.sendMessage('\u00a77Updating...');
+                                    let update = (index) => {
+                                       const value = keys[index];
+                                       core.install(value, (data, reason) => {
+                                          if (data) player.sendMessage('\u00a77Module updated.');
+                                          else player.sendMessage(`\u00a7c${reason} \u00a77(${value})`);
+                                          if (++index < keys.length) update(index);
+                                          else player.sendMessage('\u00a77Modules updated.');
+                                       });
+                                    };
+                                    update(0);
+                                    break;
+                              }
+                           } else {
+                              player.sendMessage(`\u00a7cThere are no modules to ${option}!`);
+                           }
+                        }
+                     } else if (value) {
+                        if (value.split('/')[1] && value.split('/').length === 2) {
+                           switch (option) {
+                              case 'add':
+                                 if (core.modules[value]) {
+                                    player.sendMessage('\u00a7cThat module is already installed!');
+                                 } else {
+                                    player.sendMessage('\u00a77Installing...');
+                                    core.install(value, (data, reason) => {
+                                       if (data) player.sendMessage('\u00a77Module installed.');
+                                       else player.sendMessage(`\u00a7c${reason}`);
+                                    });
+                                 }
+                                 break;
+                              case 'remove':
+                                 if (core.modules[value]) {
+                                    player.sendMessage('\u00a77Deleting...');
+                                    delete core.modules[value];
+                                    core.file(core.root, `modules/${value}`).remove();
+                                    player.sendMessage('\u00a77Module deleted.');
+                                 } else {
+                                    player.sendMessage('\u00a7cThat module has not been installed!');
+                                 }
+                                 break;
+                              case 'update':
+                                 if (core.modules[value]) {
+                                    player.sendMessage('\u00a77Updating...');
+                                    core.install(value, (data, reason) => {
+                                       if (data) player.sendMessage('\u00a77Module updated.');
+                                       else player.sendMessage(`\u00a7c${reason}`);
+                                    });
+                                 } else {
+                                    player.sendMessage('\u00a7cThat module has not been installed!');
+                                 }
+                                 break;
+                           }
+                        } else {
+                           player.sendMessage('\u00a7cThat repository is invalid!');
+                        }
+                     } else {
+                        player.sendMessage('\u00a7cYou must specify a repository!');
+                     }
+                     break;
                   case 'channel':
-                     return core.from(repo, [ 'main', 'dev' ]);
+                     if (value) {
+                        if ([ 'main', 'dev', 'all' ].includes(value)) {
+                           core.options.channel = value;
+                           player.sendMessage('\u00a77Release channel updated.');
+                        } else {
+                           player.sendMessage('\u00a7cThat is not a valid release channel!');
+                        }
+                     } else {
+                        player.sendMessage('\u00a7cYou must specify a release channel!');
+                     }
+                     break;
+                  case 'list':
+                     player.sendMessage(`\u00a77Installed modules: ${core.output(keys)}`);
+                     break;
+                  default:
+                     player.sendMessage('\u00a7cThat option does not exist!');
+                     break;
+               }
+            } else {
+               player.sendMessage('\u00a7cYou must specify an option!');
+            }
+         },
+         tabComplete: (player, option, value, appendix) => {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (appendix !== undefined) {
+               return [];
+            } else if (value !== undefined) {
+               switch (option) {
+                  case 'add':
+                     return core.from(value, core.session.modules);
+                  case 'channel':
+                     return core.from(value, [ 'main', 'dev', 'unsafe' ]);
+                  case 'remove':
+                  case 'update':
+                     return core.from(value, [ '*', ...Object.keys(core.modules) ]);
                   default:
                      return [];
                }
-            } else if (action !== undefined) {
-               return core.from(action, [ 'add', 'create', 'remove', 'update', 'list', 'channel' ]);
+            } else if (option !== undefined) {
+               return core.from(option, [ 'add', 'channel', 'list', 'remove', 'update' ]);
             } else {
                return [];
             }
          }
       });
-
-      /* add command: grakkit */
       core.command({
          name: 'grakkit',
-         execute: (player, action, value) => {
-            action && (action = core.lc(action));
-            value && (value = core.lc(value));
-            if (action) {
-               switch (action) {
-                  case 'update':
-                     core.file('plugins/grakkit/index.js').remove();
-                     server.reload();
-                     core.text(player, '&fGrakkit Updated.');
-                     break;
-                  case 'auto':
+         execute: (player, option, value) => {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (option) {
+               switch (option) {
+                  case 'mode':
                      if (value) {
-                        if ([ 'enable', 'disable' ].includes(value)) {
-                           core.options.auto = value[0] === 'e';
-                           core.text(player, `&fGrakkit Auto-Updater ${core.options.auto ? 'En' : 'Dis'}abled.`);
+                        if ([ 'manual', 'automatic' ].includes(value)) {
+                           core.options.mode = value;
+                           player.sendMessage('\u00a77Update mode updated.');
                         } else {
-                           core.text(player, '&cThat value is invalid!');
+                           player.sendMessage('\u00a7cThat is not a valid update mode!');
                         }
                      } else {
-                        core.text(player, '&cYou must specify a value!');
+                        player.sendMessage('\u00a7cYou must specify an update mode!');
                      }
                      break;
-                  default:
-                     core.text(player, '&cThat action is invalid!');
+                  case 'update':
+                     core.file(core.root, 'index.js').remove();
+                     server.reload();
+                     player.sendMessage('\u00a77Update complete.');
                      break;
+                  default:
+                     player.sendMessage('\u00a7cThat option does not exist!');
                }
             } else {
-               core.text(player, '&cYou must specify an action!');
+               player.sendMessage('\u00a7cYou must specify an option!');
             }
          },
-         tabComplete: (player, action, value, extra) => {
-            action && (action = core.lc(action));
-            value && (value = core.lc(value));
-            if (extra !== undefined) {
+         tabComplete: (player, option, value, appendix) => {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (appendix !== undefined) {
                return [];
             } else if (value !== undefined) {
-               if (action === 'auto') {
-                  return core.from(value, [ 'enable', 'disable' ]);
-               } else {
-                  return [];
+               switch (option) {
+                  case 'mode':
+                     return core.from(value, [ 'manual', 'automatic' ]);
+                  default:
+                     return [];
                }
-            } else if (action !== undefined) {
-               return core.from(action, [ 'update', 'auto' ]);
+            } else if (option !== undefined) {
+               return core.from(option, [ 'update', 'mode' ]);
             } else {
                return [];
             }
          }
       });
-
-      /* save persistent data and attempt auto-update before plugin is disabled */
+      core.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json', (response) => {
+         const json = response.json();
+         json && (core.session.modules = json);
+      });
       core.event('org.bukkit.event.server.PluginDisableEvent', (event) => {
-         if (event.getPlugin() === plugin) {
-            core.options.auto && core.file('plugins/grakkit/index.js').remove();
-            const store = core.store({ data: {} });
-            for (let namespace in store) {
-               for (let key in store[namespace]) {
-                  const file = core.folder(core.root, 'data', namespace).file(`${key}.json`);
-                  file.write(JSON.stringify(core.serialize(store[namespace][key], true)));
-               }
-            }
+         if (event.getPlugin() === core.plugin) {
+            core.options.mode === 'automatic' && core.file(core.root, 'index.js').remove();
+            core.session.tasks.forEach((task) => task.cancel);
+            Object.keys(core.session.data).forEach((path) => {
+               const file = core.file(core.root, `data/${path}.json`);
+               file.add();
+               file.write(JSON.stringify(core.serialize(core.session.data[path], true)));
+            });
          }
       });
-
-      /* update trusted module list */
-      module.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json').then((data) => {
-         module.trusted = data;
-      });
-
-      /* append index to global context */
-      Object.assign(global, index);
-
-      /* parse scripts folder */
-      try {
-         const folder = core.folder(core.root, 'scripts').make().io();
-         const files = folder.listFiles();
-         if (files) {
-            for (let index = 0; index < files.length; ++index) {
-               const file = files[index];
-               if (!file.directory) {
-                  const script = core.file(`${file.toPath()}`);
-                  console.log(`evaluating script: ./${script.path().join('/')}`);
-                  core.eval(script.read());
-               }
-            }
+      [ ...core.file(core.root, 'scripts').dir().listFiles() ].filter((io) => !io.isDirectory()).forEach((io) => {
+         try {
+            core.parse(io);
+         } catch (error) {
+            console.error(error);
+            console.error(`ScriptError: "${io.getPath().replace(/[\\]/g, '/')}" threw an error during evaluation!`);
          }
-      } catch (error) {
-         console.error(error);
-      }
-   }
+      });
+   })();
 })();
