@@ -78,6 +78,32 @@
          }
          return `${type}: ${message}`;
       },
+      eval: (player, ...args) => {
+         try {
+            let output = undefined;
+            const result = µ(args.join(' '), player);
+            switch (toString.apply(result)) {
+               case '[object Object]':
+                  const names = Object.keys(result);
+                  output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
+                  break;
+               case '[object Function]':
+                  output = `${result}`.replace(/\r/g, '');
+                  break;
+               case '[foreign HostFunction]':
+                  let input = args.slice(-1)[0].split('.').slice(-1)[0];
+                  input.endsWith(']') && (input = eval(input.replace(/.*\[/, '').slice(0, -1)));
+                  output = `hostFunction ${input.split(/[|;]/g)[0]}() { [native code] }`;
+                  break;
+               default:
+                  output = core.output(result);
+                  break;
+            }
+            return output;
+         } catch (error) {
+            throw core.error(error);
+         }
+      },
       event: (name, listener) => {
          const store = core.session.events[name] || (core.session.events[name] = []);
          if (store.push(listener) === 1) {
@@ -373,31 +399,19 @@
             name: 'js',
             execute: (player, ...args) => {
                try {
-                  let output = undefined;
-                  const result = µ(args.join(' '), player);
-                  switch (toString.apply(result)) {
-                     case '[object Object]':
-                        const names = Object.keys(result);
-                        output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
-                        break;
-                     case '[object Function]':
-                        output = `${result}`.replace(/\r/g, '');
-                        break;
-                     case '[foreign HostFunction]':
-                        let input = args.slice(-1)[0].split('.').slice(-1)[0];
-                        input.endsWith(']') && (input = eval(input.replace(/.*\[/, '').slice(0, -1)));
-                        output = `hostFunction ${input.split(/[|;]/g)[0]}() { [native code] }`;
-                        break;
-                     default:
-                        output = core.output(result);
-                        break;
-                  }
-                  player.sendMessage(`\u00a77${output}`);
+                  player.sendMessage(`\u00a77${core.eval(player, ...args)}`);
                } catch (error) {
-                  player.sendMessage(`\u00a7c${core.error(error)}`);
+                  player.sendMessage(`\u00a7c${error}`);
                }
             },
             tabComplete: (player, ...args) => {
+               if (core.options.eval === 'enabled') {
+                  try {
+                     player.sendActionBar(`\u00a7f${core.eval(player, ...args)}`);
+                  } catch (error) {
+                     player.sendActionBar(`\u00a74${error}`);
+                  }
+               }
                const input = args.slice(-1)[0];
                const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\[|\{|\||\;|\:|\,|\?|\/)/;
                const nodes = input.replace(filter, '').split('.');
@@ -575,6 +589,23 @@
                            player.sendMessage('\u00a7cYou must specify an update mode!');
                         }
                         break;
+                     case 'eval':
+                        if (value) {
+                           if ([ 'enabled', 'disabled' ].includes(value)) {
+                              core.options.eval = value;
+                              player.sendMessage(`\u00a77Live evaluation ${value}.`);
+                           } else {
+                              player.sendMessage('\u00a7cThat is not a valid state!');
+                           }
+                        } else {
+                           player.sendMessage('\u00a7cYou must specify a state!');
+                        }
+                        break;
+                     case 'update':
+                        core.file(core.root, 'index.js').remove();
+                        server.reload();
+                        player.sendMessage('\u00a77Update complete.');
+                        break;
                      /*
                      case 'refresh':
                         player.sendMessage('\u00a77Refreshing...');
@@ -584,11 +615,6 @@
                         player.sendMessage('\u00a77Refresh complete.');
                         break;
                      */
-                     case 'update':
-                        core.file(core.root, 'index.js').remove();
-                        server.reload();
-                        player.sendMessage('\u00a77Update complete.');
-                        break;
                      default:
                         player.sendMessage('\u00a7cThat option does not exist!');
                   }
@@ -605,11 +631,13 @@
                   switch (option) {
                      case 'mode':
                         return core.from(value, [ 'manual', 'automatic' ]);
+                     case 'eval':
+                        return core.from(value, [ 'enabled', 'disabled' ]);
                      default:
                         return [];
                   }
                } else if (option !== undefined) {
-                  return core.from(option, [ 'update', 'mode', 'refresh' ]);
+                  return core.from(option, [ 'update', 'mode', 'eval' /* 'refresh' */ ]);
                } else {
                   return [];
                }
