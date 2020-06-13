@@ -151,7 +151,7 @@
                   const reader = new java.io.BufferedReader(new java.io.FileReader(io));
                   reader.lines().forEach((line) => output.push(line));
                   reader.close();
-                  return output.join('');
+                  return output.join('\n');
                } catch (error) {
                   return null;
                }
