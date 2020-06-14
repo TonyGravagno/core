@@ -406,10 +406,12 @@
             },
             tabComplete: (player, ...args) => {
                if (core.options.eval === 'enabled') {
+                  const action = Java.type('net.md_5.bungee.api.ChatMessageType').ACTION_BAR;
+                  const component = Java.type('net.md_5.bungee.api.chat.TextComponent');
                   try {
-                     player.sendActionBar(`\u00a7f${core.eval(player, ...args)}`);
+                     player.sendMessage(action, new component(`\u00a7f${core.eval(player, ...args)}`));
                   } catch (error) {
-                     player.sendActionBar(`\u00a74${error}`);
+                     player.sendMessage(action, new component(`\u00a74${error}`));
                   }
                }
                const input = args.slice(-1)[0];
