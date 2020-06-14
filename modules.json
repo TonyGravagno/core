@@ -1,7 +1,7 @@
-[
-   "grakkit/example",
-   "grakkit/framework",
-   "grakkit/jx",
-   "grakkit/manipulator",
-   "grakkit/scriptcraft"
-]
+{
+   "example": "grakkit/example",
+   "framework": "grakkit/framework",
+   "jx": "grakkit/jx",
+   "manipulator": "grakkit/manipulator",
+   "scriptcraft": "grakkit/scriptcraft"
+}

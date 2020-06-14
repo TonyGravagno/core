@@ -393,7 +393,7 @@
             return object;
          }
       },
-      session: { cache: {}, commands: {}, data: {}, events: {}, modules: [], tasks: [] },
+      session: { cache: {}, commands: {}, data: {}, events: {}, modules: [] },
       setup: () => {
          core.command({
             name: 'js',
@@ -650,7 +650,6 @@
          core.event('org.bukkit.event.server.PluginDisableEvent', (event) => {
             if (event.getPlugin() === core.plugin) {
                core.options.mode === 'automatic' && core.file(core.root, 'index.js').remove();
-               core.session.tasks.forEach((task) => task.cancel);
                Object.keys(core.session.data).forEach((path) => {
                   const file = core.file(core.root, `data/${path}.json`);
                   file.add();
