@@ -1,8 +1,85 @@
+const µ = (µ, self) => eval(µ);
 (function () {
-   const µ = (µ, self) => eval(µ);
    const global = globalThis;
    const server = Java.type('org.bukkit.Bukkit').getServer();
    const core = {
+      access: (object) => {
+         if (object === null || typeof object !== 'object') {
+            return object;
+         } else {
+            const output = { instance: object };
+            Object.entries(object).forEach((entry) => {
+               if (toString.apply(entry[1]) === '[foreign HostFunction]') {
+                  Object.defineProperty(output, entry[0], {
+                     get () {
+                        const output = (...args) => core.access(entry[1](...args));
+                        output.hostFunction = entry[0];
+                        return output;
+                     }
+                  });
+               } else {
+                  Object.defineProperty(output, entry[0], {
+                     get () {
+                        return core.access(entry[1]);
+                     }
+                  });
+               }
+               let index = undefined;
+               entry[0].startsWith('is') && entry[0][2] && (index = 2);
+               entry[0].startsWith('get') && entry[0][3] && (index = 3);
+               if (index) {
+                  let key = entry[0].slice(index);
+                  if (key.length) {
+                     let camel = key[0].toLowerCase() + key.slice(1);
+                     if (!Object.keys(object).includes(camel)) {
+                        try {
+                           entry[1]();
+                           Object.defineProperty(output, camel, {
+                              get () {
+                                 return core.access(entry[1]());
+                              },
+                              set (value) {
+                                 return object[`set${key}`] && object[`set${key}`](value);
+                              }
+                           });
+                        } catch (error) {}
+                     }
+                  }
+               }
+            });
+            const array = core.array(object);
+            Object.keys(array).forEach((index) => {
+               if (!Object.keys(output).includes(index)) {
+                  Object.defineProperty(output, index, {
+                     get () {
+                        return core.access(array[index]);
+                     }
+                  });
+               }
+            });
+            return output;
+         }
+      },
+      array: (object) => {
+         const output = [];
+         if (typeof object.length === 'number') {
+            if (object.length > 0) {
+               let index = 0;
+               while (output.length < object.length) {
+                  output.push(object[index++]);
+               }
+            }
+         } else if (typeof object.forEach === 'function') {
+            object.forEach((entry) => {
+               output.push(entry);
+            });
+         } else if (typeof object.forEachRemaining === 'function') {
+            object.forEachRemaining((entry) => {
+               output.push(entry);
+            });
+         }
+         return output;
+      },
       circular: function () {},
       clear: (io) => {
          io.isDirectory() && [ ...io.listFiles() ].forEach(core.clear);
@@ -52,7 +129,7 @@
             switch (type) {
                case 'TypeError':
                   message = message.split('\n')[0];
-                  if (message.startsWith('invokeMember')) {
+                  if (message.startsWith('invokeMember') || message.startsWith('execute on foreign object')) {
                      const reason = message.split('failed due to: ')[1];
                      if (reason.startsWith('no applicable overload found')) {
                         const sets = reason.split('overloads:')[1].split(']],')[0].split(')]').map((set) => {
@@ -81,14 +158,18 @@
       eval: (player, ...args) => {
          try {
             let output = undefined;
-            const result = µ(args.join(' '), player);
+            const result = µ(args.join(' '), core.access(player));
             switch (toString.apply(result)) {
                case '[object Object]':
-                  const names = Object.keys(result);
+                  const names = Object.getOwnPropertyNames(result);
                   output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
                   break;
                case '[object Function]':
-                  output = `${result}`.replace(/\r/g, '');
+                  if (result.hostFunction) {
+                     output = `hostFunction ${result.hostFunction}() { [native code] }`;
+                  } else {
+                     output = `${result}`.replace(/\r/g, '');
+                  }
                   break;
                case '[foreign HostFunction]':
                   let input = args.slice(-1)[0].split('.').slice(-1)[0];
@@ -112,7 +193,7 @@
                Java.type(name).class,
                new (Java.extend(Java.type('org.bukkit.event.Listener'), {}))(),
                Java.type('org.bukkit.event.EventPriority').HIGHEST,
-               (info, event) => store.forEach((listener) => listener(event)),
+               (info, event) => store.forEach((listener) => listener(core.access(event))),
                core.plugin
             );
          }
@@ -322,7 +403,9 @@
                case '[foreign HostObject]':
                   const output = `${object}`;
                   if (!output || output.startsWith('class ')) {
-                     return object.getCanonicalName ? object.getCanonicalName() : object.class.getCanonicalName();
+                     return object.getCanonicalName
+                        ? object.getCanonicalName()
+                        : object.class ? object.class.getCanonicalName() : object;
                   } else {
                      return output;
                   }
@@ -365,7 +448,9 @@
             throw core.error(error);
          }
       },
-      plugin: server.getPluginManager().getPlugin('grakkit'),
+      get plugin () {
+         return core.access(server.getPluginManager().getPlugin('grakkit'));
+      },
       get registry () {
          return core.data('grakkit/registry');
       },
@@ -417,7 +502,7 @@
                const input = args.slice(-1)[0];
                const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\[|\{|\||\;|\:|\,|\?|\/)/;
                const nodes = input.replace(filter, '').split('.');
-               let context = Object.assign(global, { self: global.self || player });
+               let context = Object.assign(global, { self: global.self || core.access(player) });
                let index = 0;
                while (index < nodes.length - 1) {
                   let node = nodes[index];
@@ -670,6 +755,6 @@
          Object.keys(core.registry).forEach((namekey) => delete core.registry[namekey]);
       }
    };
-   Object.assign(global, { core: core, global: global, server: server });
+   Object.assign(global, { core: core, global: global, server: core.access(server) });
    core.setup();
 })();
