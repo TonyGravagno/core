@@ -394,13 +394,11 @@ const µ = (µ, self) => eval(µ);
          let output = undefined;
          const source = Java.type('org.graalvm.polyglot.Source');
          const builder = source.newBuilder('js', io).mimeType('application/javascript+module');
-         core.export = (value) => (output = value);
          try {
+            const core = Object.assign(core, { export: (value) => (output = value) });
             core.plugin.context().eval(builder.build());
-            delete core.export;
             return output;
          } catch (error) {
-            delete core.export;
             throw core.error(error);
          }
       },
