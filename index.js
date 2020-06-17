@@ -1,93 +1,21 @@
 const µ = (µ, self) => eval(µ);
 (function () {
+   // useful shit
    const global = globalThis;
    const server = Java.type('org.bukkit.Bukkit').getServer();
+
+   // core functions
    const core = {
-      access: (object) => {
-         if (object === null || typeof object !== 'object') {
-            return object;
-         } else {
-            const output = { instance: object };
-            Object.entries(object).forEach((entry) => {
-               if (toString.apply(entry[1]) === '[foreign HostFunction]') {
-                  Object.defineProperty(output, entry[0], {
-                     get () {
-                        const output = (...args) => core.access(entry[1](...args));
-                        output.hostFunction = entry[0];
-                        return output;
-                     }
-                  });
-               } else {
-                  Object.defineProperty(output, entry[0], {
-                     get () {
-                        return core.access(entry[1]);
-                     }
-                  });
-               }
-               let index = undefined;
-               entry[0].startsWith('is') && entry[0][2] && (index = 2);
-               entry[0].startsWith('get') && entry[0][3] && (index = 3);
-               if (index) {
-                  let key = entry[0].slice(index);
-                  if (key.length) {
-                     let camel = key[0].toLowerCase() + key.slice(1);
-                     if (!Object.keys(object).includes(camel)) {
-                        try {
-                           entry[1]();
-                           Object.defineProperty(output, camel, {
-                              get () {
-                                 return core.access(entry[1]());
-                              },
-                              set (value) {
-                                 return object[`set${key}`] && object[`set${key}`](value);
-                              }
-                           });
-                        } catch (error) {}
-                     }
-                  }
-               }
-            });
-            const array = core.array(object);
-            Object.keys(array).forEach((index) => {
-               if (!Object.keys(output).includes(index)) {
-                  Object.defineProperty(output, index, {
-                     get () {
-                        return core.access(array[index]);
-                     }
-                  });
-               }
-            });
-            return output;
-         }
-      },
-      array: (object) => {
-         const output = [];
-         if (typeof object.length === 'number') {
-            if (object.length > 0) {
-               let index = 0;
-               while (output.length < object.length) {
-                  output.push(object[index++]);
-               }
-            }
-         } else if (typeof object.forEach === 'function') {
-            object.forEach((entry) => {
-               output.push(entry);
-            });
-         } else if (typeof object.forEachRemaining === 'function') {
-            object.forEachRemaining((entry) => {
-               output.push(entry);
-            });
-         }
-         return output;
-      },
+      // circular marker
       circular: function () {},
+
+      // recursive folder deletion
       clear: (io) => {
          io.isDirectory() && [ ...io.listFiles() ].forEach(core.clear);
          io.delete();
       },
-      color: (text) => {
-         return text.split('&').join('\xA7').split('\xA7\xA7').join('&');
-      },
+
+      // custom command creator
       command: (options) => {
          const name = options.name;
          const input = Object.assign(
@@ -102,24 +30,26 @@ const µ = (µ, self) => eval(µ);
          );
          const namekey = `${input.prefix}:${name}`;
          core.session.commands[namekey] = { execute: input.execute, tabComplete: input.tabComplete };
-         if (!core.registry[namekey]) {
-            const prefix = `(player,args)=>core.session.commands[${JSON.stringify(namekey)}]`;
-            const suffix = "(player,...args.split(' '))";
-            core.plugin.register(
-               input.prefix,
-               input.name,
-               input.usage,
-               input.description,
-               `${prefix}.execute${suffix}`,
-               `${prefix}.tabComplete${suffix}`
-            );
-         }
+         const prefix = `(player,args)=>core.session.commands[${JSON.stringify(namekey)}]`;
+         const suffix = "(player,...args.split(' '))";
+         core.plugin.register(
+            input.prefix,
+            input.name,
+            input.usage,
+            input.description,
+            `${prefix}.execute${suffix}`,
+            `${prefix}.tabComplete${suffix}`
+         );
       },
+
+      // persistent data storage
       data: (path, standby) => {
          const store = core.session.data;
          const file = core.file(core.root, `data/${path}.json`);
          return store[path] || (store[path] = Object.assign(standby || {}, JSON.parse(file.read() || '{}')));
       },
+
+      // internal error formatter
       error: (error) => {
          let type = 'Error';
          let message = `${error}`;
@@ -155,10 +85,12 @@ const µ = (µ, self) => eval(µ);
          }
          return `${type}: ${message}`;
       },
+
+      // code evaluation
       eval: (player, ...args) => {
          try {
             let output = undefined;
-            const result = µ(args.join(' '), core.access(player));
+            const result = µ(args.join(' '), player);
             switch (toString.apply(result)) {
                case '[object Object]':
                   const names = Object.getOwnPropertyNames(result);
@@ -185,6 +117,8 @@ const µ = (µ, self) => eval(µ);
             throw core.error(error);
          }
       },
+
+      // server event handler
       event: (name, listener) => {
          const store = core.session.events[name] || (core.session.events[name] = []);
          if (store.push(listener) === 1) {
@@ -193,21 +127,34 @@ const µ = (µ, self) => eval(µ);
                Java.type(name).class,
                new (Java.extend(Java.type('org.bukkit.event.Listener'), {}))(),
                Java.type('org.bukkit.event.EventPriority').HIGHEST,
-               (info, event) => store.forEach((listener) => listener(core.access(event))),
+               (info, event) => store.forEach((listener) => listener(event)),
                core.plugin
             );
          }
       },
+
+      // file manipulation code
       file: (...nodes) => {
          const io = java.nio.file.Path.of(...nodes).toFile();
+         let parent = (io) => {
+            let context = io.getParentFile();
+            if (!context.exists()) {
+               const contexts = [];
+               while (context && !context.exists()) {
+                  contexts.push(context);
+                  context = context.getParentFile();
+               }
+               contexts.reverse().forEach((folder) => folder.mkdir());
+            }
+         };
          return {
             add: () => {
-               core.parent(io);
+               parent(io);
                io.exists() || java.nio.file.Files.createFile(io.toPath());
                return io;
             },
             dir: () => {
-               core.parent(io);
+               parent(io);
                io.exists() || io.mkdir();
                return io;
             },
@@ -260,6 +207,8 @@ const µ = (µ, self) => eval(µ);
             }
          };
       },
+
+      // web request function
       fetch: (location, callback) => {
          const conn = new java.net.URL(location).openConnection();
          conn.setDoOutput(true);
@@ -285,13 +234,16 @@ const µ = (µ, self) => eval(µ);
             callback(null, conn.getResponseCode());
          }
       },
+
+      // tab-completion helper
       from: (query, array) => {
          return [ ...array ].sort().filter((value) => value.includes(query));
       },
+
+      // module importer
       import: (source) => {
-         const cache = core.session.cache;
-         if (cache[source]) {
-            return cache[source];
+         if (core.session.cache[source]) {
+            return core.session.cache[source];
          } else {
             const file = core.file(core.root, `modules/${source}/package.json`);
             if (file.exists) {
@@ -301,14 +253,19 @@ const µ = (µ, self) => eval(µ);
                } catch (error) {
                   throw `ImportError: "${file.path}" is not a valid JSON file!`;
                }
+               (info.require || []).forEach((require) => {
+                  if (!core.modules[require]) {
+                     throw `ImportError: The required dependency "${require}" must be installed!`;
+                  }
+               });
                if (info.main) {
                   info.main.endsWith('.js') || (info.main += '.js');
                   const index = core.file(`${file.parent.path}/${info.main}`);
                   if (index.exists) {
                      try {
-                        return (cache[source] = core.parse(index.io));
+                        return (core.session.cache[source] = core.parse(index.io));
                      } catch (error) {
-                        console.error(error);
+                        console.error(error.stack || error);
                         throw `ImportError: "${index.path}" threw an error during evaluation!`;
                      }
                   } else {
@@ -322,6 +279,8 @@ const µ = (µ, self) => eval(µ);
             }
          }
       },
+
+      // module installer
       install: (source, callback) => {
          core.fetch(`https://api.github.com/repos/${source}/releases`, (response, error) => {
             let json = response.json();
@@ -382,12 +341,18 @@ const µ = (µ, self) => eval(µ);
             }
          });
       },
+
+      // installed module list
       get modules () {
          return core.data('grakkit/modules');
       },
+
+      // persistent option storage
       get options () {
          return core.data('grakkit/options', { channel: 'main', mode: 'manual' });
       },
+
+      // object pretty printer
       output: (object) => {
          if (object && object.constructor === core.circular) {
             return 'Circular';
@@ -423,17 +388,8 @@ const µ = (µ, self) => eval(µ);
             }
          }
       },
-      parent: (io) => {
-         let context = io.getParentFile();
-         if (!context.exists()) {
-            const contexts = [];
-            while (context && !context.exists()) {
-               contexts.push(context);
-               context = context.getParentFile();
-            }
-            contexts.reverse().forEach((folder) => folder.mkdir());
-         }
-      },
+
+      // script file parser
       parse: (io) => {
          let output = undefined;
          const source = Java.type('org.graalvm.polyglot.Source');
@@ -448,15 +404,18 @@ const µ = (µ, self) => eval(µ);
             throw core.error(error);
          }
       },
+
+      // grakkit plugin access
       get plugin () {
-         return core.access(server.getPluginManager().getPlugin('grakkit'));
+         return server.getPluginManager().getPlugin('grakkit');
       },
-      get registry () {
-         return core.data('grakkit/registry');
-      },
+
+      // plugin folder location
       get root () {
          return core.plugin.getDataFolder().getPath().replace(/[\\]/g, '/');
       },
+
+      // object decircularizer
       serialize: (object, nullify, nodes) => {
          if (typeof object === 'object') {
             if (object === null) {
@@ -478,283 +437,284 @@ const µ = (µ, self) => eval(µ);
             return object;
          }
       },
-      session: { cache: {}, commands: {}, data: {}, events: {}, modules: [] },
-      setup: () => {
-         core.command({
-            name: 'js',
-            execute: (player, ...args) => {
-               try {
-                  player.sendMessage(`\u00a77${core.eval(player, ...args)}`);
-               } catch (error) {
-                  player.sendMessage(`\u00a7c${error}`);
-               }
-            },
-            tabComplete: (player, ...args) => {
-               if (core.options.eval === 'enabled') {
-                  const action = Java.type('net.md_5.bungee.api.ChatMessageType').ACTION_BAR;
-                  const component = Java.type('net.md_5.bungee.api.chat.TextComponent');
-                  try {
-                     player.sendMessage(action, new component(`\u00a7f${core.eval(player, ...args)}`));
-                  } catch (error) {
-                     player.sendMessage(action, new component(`\u00a74${error}`));
-                  }
-               }
-               const input = args.slice(-1)[0];
-               const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\[|\{|\||\;|\:|\,|\?|\/)/;
-               const nodes = input.replace(filter, '').split('.');
-               let context = Object.assign(global, { self: global.self || core.access(player) });
-               let index = 0;
-               while (index < nodes.length - 1) {
-                  let node = nodes[index];
-                  if (context[node]) {
-                     context = context[node];
-                     ++index;
-                  } else {
-                     index = Infinity;
-                  }
-               }
-               if (index === nodes.length - 1) {
-                  const segment = nodes.slice(-1)[0];
-                  return Object.getOwnPropertyNames(context)
-                     .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
-                     .map((comp) => (input.match(filter) || [ '' ])[0] + [ ...nodes.slice(0, -1), comp ].join('.'));
-               } else {
-                  return [];
-               }
-            }
-         });
-         core.command({
-            name: 'module',
-            execute: (player, option, value) => {
-               option && (option = option.toLowerCase());
-               value && (value = value.toLowerCase());
-               if (option) {
-                  const keys = Object.keys(core.modules);
-                  switch (option) {
-                     case 'add':
-                     case 'remove':
-                     case 'update':
-                        if (value === '*') {
-                           if (option === 'add') {
-                              player.sendMessage('\u00a77One sec, just need to download the entire GitHub database...');
-                           } else {
-                              if (keys[0]) {
-                                 switch (option) {
-                                    case 'remove':
-                                       player.sendMessage('\u00a77Deleting...');
-                                       keys.forEach((value) => {
-                                          delete core.modules[value];
-                                          core.file(core.root, `modules/${value}`).remove();
-                                          player.sendMessage(`\u00a77Module deleted. (${value})`);
-                                       });
-                                       player.sendMessage('\u00a77Modules deleted.');
-                                       break;
-                                    case 'update':
-                                       player.sendMessage('\u00a77Updating...');
-                                       let update = (index) => {
-                                          const value = keys[index];
-                                          core.install(value, (data, reason) => {
-                                             if (data) player.sendMessage(`\u00a77Module updated. (${value})`);
-                                             else player.sendMessage(`\u00a7c${reason} \u00a77(${value})`);
-                                             if (++index < keys.length) update(index);
-                                             else player.sendMessage('\u00a77Modules updated.');
-                                          });
-                                       };
-                                       update(0);
-                                       break;
-                                 }
-                              } else {
-                                 player.sendMessage(`\u00a7cThere are no modules to ${option}!`);
-                              }
-                           }
-                        } else if (value) {
-                           if (value.split('/')[1] && value.split('/').length === 2) {
-                              switch (option) {
-                                 case 'add':
-                                    if (core.modules[value]) {
-                                       player.sendMessage('\u00a7cThat module is already installed!');
-                                    } else {
-                                       player.sendMessage('\u00a77Installing...');
-                                       core.install(value, (data, reason) => {
-                                          if (data) player.sendMessage('\u00a77Module installed.');
-                                          else player.sendMessage(`\u00a7c${reason}`);
-                                       });
-                                    }
-                                    break;
-                                 case 'remove':
-                                    if (core.modules[value]) {
-                                       player.sendMessage('\u00a77Deleting...');
-                                       delete core.modules[value];
-                                       core.file(core.root, `modules/${value}`).remove();
-                                       player.sendMessage('\u00a77Module deleted.');
-                                    } else {
-                                       player.sendMessage('\u00a7cThat module has not been installed!');
-                                    }
-                                    break;
-                                 case 'update':
-                                    if (core.modules[value]) {
-                                       player.sendMessage('\u00a77Updating...');
-                                       core.install(value, (data, reason) => {
-                                          if (data) player.sendMessage('\u00a77Module updated.');
-                                          else player.sendMessage(`\u00a7c${reason}`);
-                                       });
-                                    } else {
-                                       player.sendMessage('\u00a7cThat module has not been installed!');
-                                    }
-                                    break;
-                              }
-                           } else {
-                              player.sendMessage('\u00a7cThat repository is invalid!');
-                           }
-                        } else {
-                           player.sendMessage('\u00a7cYou must specify a repository!');
-                        }
-                        break;
-                     case 'channel':
-                        if (value) {
-                           if ([ 'main', 'dev', 'all' ].includes(value)) {
-                              core.options.channel = value;
-                              player.sendMessage('\u00a77Release channel updated.');
-                           } else {
-                              player.sendMessage('\u00a7cThat is not a valid release channel!');
-                           }
-                        } else {
-                           player.sendMessage('\u00a7cYou must specify a release channel!');
-                        }
-                        break;
-                     case 'list':
-                        player.sendMessage(`\u00a77Installed modules: ${core.output(keys)}`);
-                        break;
-                     default:
-                        player.sendMessage('\u00a7cThat option does not exist!');
-                        break;
-                  }
-               } else {
-                  player.sendMessage('\u00a7cYou must specify an option!');
-               }
-            },
-            tabComplete: (player, option, value, appendix) => {
-               option && (option = option.toLowerCase());
-               value && (value = value.toLowerCase());
-               if (appendix !== undefined) {
-                  return [];
-               } else if (value !== undefined) {
-                  switch (option) {
-                     case 'add':
-                        return core.from(value, core.session.modules);
-                     case 'channel':
-                        return core.from(value, [ 'main', 'dev', 'unsafe' ]);
-                     case 'remove':
-                     case 'update':
-                        return core.from(value, [ '*', ...Object.keys(core.modules) ]);
-                     default:
-                        return [];
-                  }
-               } else if (option !== undefined) {
-                  return core.from(option, [ 'add', 'channel', 'list', 'remove', 'update' ]);
-               } else {
-                  return [];
-               }
-            }
-         });
-         core.command({
-            name: 'grakkit',
-            execute: (player, option, value) => {
-               option && (option = option.toLowerCase());
-               value && (value = value.toLowerCase());
-               if (option) {
-                  switch (option) {
-                     case 'mode':
-                        if (value) {
-                           if ([ 'manual', 'automatic' ].includes(value)) {
-                              core.options.mode = value;
-                              player.sendMessage('\u00a77Update mode updated.');
-                           } else {
-                              player.sendMessage('\u00a7cThat is not a valid update mode!');
-                           }
-                        } else {
-                           player.sendMessage('\u00a7cYou must specify an update mode!');
-                        }
-                        break;
-                     case 'eval':
-                        if (value) {
-                           if ([ 'enabled', 'disabled' ].includes(value)) {
-                              core.options.eval = value;
-                              player.sendMessage(`\u00a77Live evaluation ${value}.`);
-                           } else {
-                              player.sendMessage('\u00a7cThat is not a valid state!');
-                           }
-                        } else {
-                           player.sendMessage('\u00a7cYou must specify a state!');
-                        }
-                        break;
-                     case 'update':
-                        core.file(core.root, 'index.js').remove();
-                        server.reload();
-                        player.sendMessage('\u00a77Update complete.');
-                        break;
-                     /*
-                     case 'refresh':
-                        player.sendMessage('\u00a77Refreshing...');
-                        Object.keys(core.session.commands).forEach((namekey) => (core.registry[namekey] = true));
-                        server.getPluginManager().disablePlugin(core.plugin);
-                        server.getPluginManager().enablePlugin(core.plugin);
-                        player.sendMessage('\u00a77Refresh complete.');
-                        break;
-                     */
-                     default:
-                        player.sendMessage('\u00a7cThat option does not exist!');
-                  }
-               } else {
-                  player.sendMessage('\u00a7cYou must specify an option!');
-               }
-            },
-            tabComplete: (player, option, value, appendix) => {
-               option && (option = option.toLowerCase());
-               value && (value = value.toLowerCase());
-               if (appendix !== undefined) {
-                  return [];
-               } else if (value !== undefined) {
-                  switch (option) {
-                     case 'mode':
-                        return core.from(value, [ 'manual', 'automatic' ]);
-                     case 'eval':
-                        return core.from(value, [ 'enabled', 'disabled' ]);
-                     default:
-                        return [];
-                  }
-               } else if (option !== undefined) {
-                  return core.from(option, [ 'update', 'mode', 'eval' /* 'refresh' */ ]);
-               } else {
-                  return [];
-               }
-            }
-         });
-         core.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json', (response) => {
-            const json = response.json();
-            json && (core.session.modules = json);
-         });
-         core.event('org.bukkit.event.server.PluginDisableEvent', (event) => {
-            if (event.getPlugin() === core.plugin) {
-               core.options.mode === 'automatic' && core.file(core.root, 'index.js').remove();
-               Object.keys(core.session.data).forEach((path) => {
-                  const file = core.file(core.root, `data/${path}.json`);
-                  file.add();
-                  file.write(JSON.stringify(core.serialize(core.session.data[path], true)));
-               });
-            }
-         });
-         [ ...core.file(core.root, 'scripts').dir().listFiles() ].filter((io) => !io.isDirectory()).forEach((io) => {
-            try {
-               core.parse(io);
-            } catch (error) {
-               console.error(error);
-               console.error(`ScriptError: "${io.getPath().replace(/[\\]/g, '/')}" threw an error during evaluation!`);
-            }
-         });
-         Object.keys(core.registry).forEach((namekey) => delete core.registry[namekey]);
-      }
+      session: { cache: {}, commands: {}, data: {}, events: {}, modules: [] }
    };
-   Object.assign(global, { core: core, global: global, server: core.access(server) });
-   core.setup();
+
+   // extend basic shit to global
+   Object.assign(global, { core: core, global: global, server: server });
+
+   // command: js
+   core.command({
+      name: 'js',
+      execute: (player, ...args) => {
+         try {
+            player.sendMessage(`§7${core.eval(player, ...args)}`);
+         } catch (error) {
+            player.sendMessage(`§c${error}`);
+         }
+      },
+      tabComplete: (player, ...args) => {
+         if (core.options.eval === 'enabled') {
+            const action = Java.type('net.md_5.bungee.api.ChatMessageType').ACTION_BAR;
+            const component = Java.type('net.md_5.bungee.api.chat.TextComponent');
+            try {
+               player.sendMessage(action, new component(`§f${core.eval(player, ...args)}`));
+            } catch (error) {
+               player.sendMessage(action, new component(`§4${error}`));
+            }
+         }
+         const input = args.slice(-1)[0];
+         const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\[|\{|\||\;|\:|\,|\?|\/)/;
+         const nodes = input.replace(filter, '').split('.');
+         let context = Object.assign(global, { self: global.self || player });
+         let index = 0;
+         while (index < nodes.length - 1) {
+            let node = nodes[index];
+            if (context[node]) {
+               context = context[node];
+               ++index;
+            } else {
+               index = Infinity;
+            }
+         }
+         if (index === nodes.length - 1) {
+            const segment = nodes.slice(-1)[0];
+            return Object.getOwnPropertyNames(context)
+               .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
+               .map((comp) => (input.match(filter) || [ '' ])[0] + [ ...nodes.slice(0, -1), comp ].join('.'));
+         } else {
+            return [];
+         }
+      }
+   });
+
+   // command: module
+   core.command({
+      name: 'module',
+      execute: (player, option, value) => {
+         option && (option = option.toLowerCase());
+         value && (value = value.toLowerCase());
+         if (option) {
+            const keys = Object.keys(core.modules);
+            switch (option) {
+               case 'add':
+               case 'remove':
+               case 'update':
+                  if (value === '*') {
+                     if (option === 'add') {
+                        player.sendMessage('§7One sec, just need to download the entire GitHub database...');
+                     } else {
+                        if (keys[0]) {
+                           switch (option) {
+                              case 'remove':
+                                 player.sendMessage('§7Deleting...');
+                                 keys.forEach((value) => {
+                                    delete core.modules[value];
+                                    core.file(core.root, `modules/${value}`).remove();
+                                    player.sendMessage(`§7Module deleted. (${value})`);
+                                 });
+                                 player.sendMessage('§7Modules deleted.');
+                                 break;
+                              case 'update':
+                                 player.sendMessage('§7Updating...');
+                                 let update = (index) => {
+                                    const value = keys[index];
+                                    core.install(value, (data, reason) => {
+                                       if (data) player.sendMessage(`§7Module updated. (${value})`);
+                                       else player.sendMessage(`§c${reason} §7(${value})`);
+                                       if (++index < keys.length) update(index);
+                                       else player.sendMessage('§7Modules updated.');
+                                    });
+                                 };
+                                 update(0);
+                                 break;
+                           }
+                        } else {
+                           player.sendMessage(`§cThere are no modules to ${option}!`);
+                        }
+                     }
+                  } else if (value) {
+                     if (value.split('/')[1] && value.split('/').length === 2) {
+                        switch (option) {
+                           case 'add':
+                              if (core.modules[value]) {
+                                 player.sendMessage('§cThat module is already installed!');
+                              } else {
+                                 player.sendMessage('§7Installing...');
+                                 core.install(value, (data, reason) => {
+                                    if (data) player.sendMessage('§7Module installed.');
+                                    else player.sendMessage(`§c${reason}`);
+                                 });
+                              }
+                              break;
+                           case 'remove':
+                              if (core.modules[value]) {
+                                 player.sendMessage('§7Deleting...');
+                                 delete core.modules[value];
+                                 core.file(core.root, `modules/${value}`).remove();
+                                 player.sendMessage('§7Module deleted.');
+                              } else {
+                                 player.sendMessage('§cThat module has not been installed!');
+                              }
+                              break;
+                           case 'update':
+                              if (core.modules[value]) {
+                                 player.sendMessage('§7Updating...');
+                                 core.install(value, (data, reason) => {
+                                    if (data) player.sendMessage('§7Module updated.');
+                                    else player.sendMessage(`§c${reason}`);
+                                 });
+                              } else {
+                                 player.sendMessage('§cThat module has not been installed!');
+                              }
+                              break;
+                        }
+                     } else {
+                        player.sendMessage('§cThat repository is invalid!');
+                     }
+                  } else {
+                     player.sendMessage('§cYou must specify a repository!');
+                  }
+                  break;
+               case 'channel':
+                  if (value) {
+                     if ([ 'main', 'dev', 'all' ].includes(value)) {
+                        core.options.channel = value;
+                        player.sendMessage('§7Release channel updated.');
+                     } else {
+                        player.sendMessage('§cThat is not a valid release channel!');
+                     }
+                  } else {
+                     player.sendMessage('§cYou must specify a release channel!');
+                  }
+                  break;
+               case 'list':
+                  player.sendMessage(`§7Installed modules: ${core.output(keys)}`);
+                  break;
+               default:
+                  player.sendMessage('§cThat option does not exist!');
+                  break;
+            }
+         } else {
+            player.sendMessage('§cYou must specify an option!');
+         }
+      },
+      tabComplete: (player, option, value, appendix) => {
+         option && (option = option.toLowerCase());
+         value && (value = value.toLowerCase());
+         if (appendix !== undefined) {
+            return [];
+         } else if (value !== undefined) {
+            switch (option) {
+               case 'add':
+                  return core.from(value, core.session.modules);
+               case 'channel':
+                  return core.from(value, [ 'main', 'dev', 'unsafe' ]);
+               case 'remove':
+               case 'update':
+                  return core.from(value, [ '*', ...Object.keys(core.modules) ]);
+               default:
+                  return [];
+            }
+         } else if (option !== undefined) {
+            return core.from(option, [ 'add', 'channel', 'list', 'remove', 'update' ]);
+         } else {
+            return [];
+         }
+      }
+   });
+
+   // command: grakkit
+   core.command({
+      name: 'grakkit',
+      execute: (player, option, value) => {
+         option && (option = option.toLowerCase());
+         value && (value = value.toLowerCase());
+         if (option) {
+            switch (option) {
+               case 'mode':
+                  if (value) {
+                     if ([ 'manual', 'automatic' ].includes(value)) {
+                        core.options.mode = value;
+                        player.sendMessage('§7Update mode updated.');
+                     } else {
+                        player.sendMessage('§cThat is not a valid update mode!');
+                     }
+                  } else {
+                     player.sendMessage('§cYou must specify an update mode!');
+                  }
+                  break;
+               case 'eval':
+                  if (value) {
+                     if ([ 'enabled', 'disabled' ].includes(value)) {
+                        core.options.eval = value;
+                        player.sendMessage(`§7Live evaluation ${value}.`);
+                     } else {
+                        player.sendMessage('§cThat is not a valid state!');
+                     }
+                  } else {
+                     player.sendMessage('§cYou must specify a state!');
+                  }
+                  break;
+               case 'update':
+                  core.file(core.root, 'index.js').remove();
+                  server.reload();
+                  player.sendMessage('§7Update complete.');
+                  break;
+               default:
+                  player.sendMessage('§cThat option does not exist!');
+            }
+         } else {
+            player.sendMessage('§cYou must specify an option!');
+         }
+      },
+      tabComplete: (player, option, value, appendix) => {
+         option && (option = option.toLowerCase());
+         value && (value = value.toLowerCase());
+         if (appendix !== undefined) {
+            return [];
+         } else if (value !== undefined) {
+            switch (option) {
+               case 'mode':
+                  return core.from(value, [ 'manual', 'automatic' ]);
+               case 'eval':
+                  return core.from(value, [ 'enabled', 'disabled' ]);
+               default:
+                  return [];
+            }
+         } else if (option !== undefined) {
+            return core.from(option, [ 'update', 'mode', 'eval' /* 'refresh' */ ]);
+         } else {
+            return [];
+         }
+      }
+   });
+
+   // add module tab-completion list
+   core.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json', (response) => {
+      const json = response.json();
+      json && (core.session.modules = json);
+   });
+
+   // server reload handler
+   core.event('org.bukkit.event.server.PluginDisableEvent', (event) => {
+      if (event.getPlugin() === core.plugin) {
+         core.options.mode === 'automatic' && core.file(core.root, 'index.js').remove();
+         Object.keys(core.session.data).forEach((path) => {
+            const file = core.file(core.root, `data/${path}.json`);
+            file.add();
+            file.write(JSON.stringify(core.serialize(core.session.data[path], true)));
+         });
+      }
+   });
+
+   // parse scripts folder
+   [ ...core.file(core.root, 'scripts').dir().listFiles() ].filter((io) => !io.isDirectory()).forEach((io) => {
+      try {
+         core.parse(io);
+      } catch (error) {
+         console.error(error.stack || error);
+         console.error(`ScriptError: "${io.getPath().replace(/[\\]/g, '/')}" threw an error during evaluation!`);
+      }
+   });
 })();
