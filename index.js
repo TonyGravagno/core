@@ -54,26 +54,11 @@ const µ = (µ, self) => eval(µ);
          let type = 'Error';
          let message = `${error}`;
          if (error.stack) {
-            message = error.message;
             type = error.stack.split('\n')[0].split(' ')[0].slice(0, -1);
+            message = error.message;
             switch (type) {
                case 'TypeError':
                   message = message.split('\n')[0];
-                  if (message.startsWith('invokeMember') || message.startsWith('execute on foreign object')) {
-                     const reason = message.split('failed due to: ')[1];
-                     if (reason.startsWith('no applicable overload found')) {
-                        const sets = reason.split('overloads:')[1].split(']],')[0].split(')]').map((set) => {
-                           return `(${set.split('(').slice(1).join('(')})`;
-                        });
-                        message = `Invalid arguments! Expected: ${sets.join(' || ').slice(0, -1)}`;
-                     } else if (reason.startsWith('Arity error')) {
-                        message = `Insufficient arguments! Expected: ${reason.split('-')[1].split(' ')[2]}`;
-                     } else if (reason.startsWith('UnsupportedTypeException')) {
-                        message = 'Invalid arguments!';
-                     } else if (reason.startsWith('Unknown identifier')) {
-                        message = `That method (${reason.split(': ')[1]}) is not a member of its parent!`;
-                     }
-                  }
                   break;
                case 'SyntaxError':
                   message = message.split(' ').slice(1).join(' ').split('\n')[0];
@@ -116,6 +101,11 @@ const µ = (µ, self) => eval(µ);
          } catch (error) {
             throw core.error(error);
          }
+      },
+
+      // module export handler
+      get export () {
+         return core.session.exporters.slice(-1)[0];
       },
 
       // server event handler
@@ -395,10 +385,12 @@ const µ = (µ, self) => eval(µ);
          const source = Java.type('org.graalvm.polyglot.Source');
          const builder = source.newBuilder('js', io).mimeType('application/javascript+module');
          try {
-            const core = Object.assign(core, { export: (value) => (output = value) });
+            core.session.exporters.push((value) => (output = value));
             core.plugin.context().eval(builder.build());
+            core.session.exporters.pop();
             return output;
          } catch (error) {
+            core.session.exporters.pop();
             throw core.error(error);
          }
       },
@@ -435,7 +427,7 @@ const µ = (µ, self) => eval(µ);
             return object;
          }
       },
-      session: { cache: {}, commands: {}, data: {}, events: {}, modules: [] }
+      session: { cache: {}, commands: {}, exporters: [], data: {}, events: {}, modules: [] }
    };
 
    // extend basic shit to global
