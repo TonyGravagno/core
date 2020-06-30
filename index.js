@@ -461,6 +461,7 @@ const µ = (µ, self) => eval(µ);
          while (index < nodes.length - 1) {
             let node = nodes[index++];
             [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
+            node[0].match(/[0-9]/g) && (node = Number(node));
             if (context[node]) context = context[node];
             else index = Infinity;
          }
