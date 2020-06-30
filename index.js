@@ -454,24 +454,37 @@ const µ = (µ, self) => eval(µ);
             }
          }
          const input = args.slice(-1)[0];
-         const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\[|\{|\||\;|\:|\,|\?|\/)/;
-         const nodes = input.replace(filter, '').split('.');
+         const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
+         const nodes = input.replace(filter, '').replace(/(\[)|(\]\.)/g, '.').split('.');
          let context = Object.assign(global, { self: global.self || player });
          let index = 0;
          while (index < nodes.length - 1) {
-            let node = nodes[index];
-            if (context[node]) {
-               context = context[node];
-               ++index;
-            } else {
-               index = Infinity;
-            }
+            let node = nodes[index++];
+            [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
+            if (context[node]) context = context[node];
+            else index = Infinity;
          }
          if (index === nodes.length - 1) {
-            const segment = nodes.slice(-1)[0];
-            return Object.getOwnPropertyNames(context)
+            const base = (input.match(filter) || [ '' ])[0] + input.replace(filter, '');
+            let segment = nodes.slice(-1)[0];
+            [ "'", '"', '`' ].includes(segment[0]) && (segment = segment.slice(1, -1));
+            const properties = Object.getOwnPropertyNames(context);
+            if (typeof context.length === 'number' && [ 'object', 'function' ].includes(typeof context[0])) {
+               properties.push(...Array(context.length).join(' ').split(' ').map((value, index) => `${index}`));
+            }
+            return properties
                .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
-               .map((comp) => (input.match(filter) || [ '' ])[0] + [ ...nodes.slice(0, -1), comp ].join('.'));
+               .map((key) => {
+                  let property = '';
+                  if (key[0].match(/[0-9]/g)) property = `[${key}]`;
+                  else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) property = `[\`${key.split('`').join('\\`')}\`]`;
+                  else property = `.${key}`;
+                  const path = base.split(property[0]);
+                  const name = property.slice(1);
+                  if (!base || !base.match(/[\.\[]/g)) return base.replace(base.replace(filter, ''), '') + name;
+                  else if (name.includes(path.slice(-1)[0])) return path.slice(0, -1).join(property[0]) + property;
+               })
+               .filter((property) => property);
          } else {
             return [];
          }
