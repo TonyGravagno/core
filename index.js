@@ -1,8 +1,27 @@
 const µ = (µ, self) => eval(µ);
 (function () {
+   // import types
+   const URL = Java.type('java.net.URL');
+   const Path = Java.type('java.nio.file.Path');
+   const Files = Java.type('java.nio.file.Files');
+   const Bukkit = Java.type('org.bukkit.Bukkit');
+   const Source = Java.type('org.graalvm.polyglot.Source');
+   const Scanner = Java.type('java.util.Scanner');
+   const Listener = Java.extend(Java.type('org.bukkit.event.Listener'), {});
+   const FileReader = Java.type('java.io.FileReader');
+   const FileWriter = Java.type('java.io.FileWriter');
+   const PrintWriter = Java.type('java.io.PrintWriter');
+   const EventPriority = Java.type('org.bukkit.event.EventPriority');
+   const TextComponent = Java.type('net.md_5.bungee.api.chat.TextComponent');
+   const BufferedReader = Java.type('java.io.BufferedReader');
+   const ZipInputStream = Java.type('java.util.zip.ZipInputStream');
+   const ChatMessageType = Java.type('net.md_5.bungee.api.ChatMessageType');
+   const FileOutputStream = Java.type('java.io.FileOutputStream');
+   const StandardCopyOption = Java.type('java.nio.file.StandardCopyOption');
+
    // useful shit
    const global = globalThis;
-   const server = Java.type('org.bukkit.Bukkit').getServer();
+   const server = Bukkit.getServer();
 
    // core functions
    const core = {
@@ -115,8 +134,8 @@ const µ = (µ, self) => eval(µ);
             const manager = server.getPluginManager();
             manager.registerEvent(
                Java.type(name).class,
-               new (Java.extend(Java.type('org.bukkit.event.Listener'), {}))(),
-               Java.type('org.bukkit.event.EventPriority').HIGHEST,
+               new Listener(),
+               EventPriority.HIGHEST,
                (info, event) => store.forEach((listener) => listener(event)),
                core.plugin
             );
@@ -125,7 +144,7 @@ const µ = (µ, self) => eval(µ);
 
       // file manipulation code
       file: (...nodes) => {
-         const io = java.nio.file.Path.of(...nodes).toFile();
+         const io = Path.of(...nodes).toFile();
          let parent = (io) => {
             let context = io.getParentFile();
             if (!context.exists()) {
@@ -140,7 +159,7 @@ const µ = (µ, self) => eval(µ);
          return {
             add: () => {
                parent(io);
-               io.exists() || java.nio.file.Files.createFile(io.toPath());
+               io.exists() || Files.createFile(io.toPath());
                return io;
             },
             dir: () => {
@@ -166,7 +185,7 @@ const µ = (µ, self) => eval(µ);
             read: () => {
                try {
                   const output = [];
-                  const reader = new java.io.BufferedReader(new java.io.FileReader(io));
+                  const reader = new BufferedReader(new FileReader(io));
                   reader.lines().forEach((line) => output.push(line));
                   reader.close();
                   return output.join('\n');
@@ -187,7 +206,7 @@ const µ = (µ, self) => eval(µ);
             },
             write: (data) => {
                try {
-                  const writer = new java.io.PrintWriter(new java.io.FileWriter(io));
+                  const writer = new PrintWriter(new FileWriter(io));
                   writer.print(data);
                   writer.close();
                   return true;
@@ -200,7 +219,7 @@ const µ = (µ, self) => eval(µ);
 
       // web request function
       fetch: (location, callback) => {
-         const conn = new java.net.URL(location).openConnection();
+         const conn = new URL(location).openConnection();
          conn.setDoOutput(true);
          conn.setRequestMethod('GET');
          conn.setInstanceFollowRedirects(true);
@@ -210,11 +229,11 @@ const µ = (µ, self) => eval(µ);
                   return conn.getInputStream();
                },
                text: () => {
-                  return new java.util.Scanner(conn.getInputStream()).useDelimiter('\\A').next();
+                  return new Scanner(conn.getInputStream()).useDelimiter('\\A').next();
                },
                json: () => {
                   try {
-                     return JSON.parse(new java.util.Scanner(conn.getInputStream()).useDelimiter('\\A').next());
+                     return JSON.parse(new Scanner(conn.getInputStream()).useDelimiter('\\A').next());
                   } catch (error) {
                      return null;
                   }
@@ -287,7 +306,7 @@ const µ = (µ, self) => eval(µ);
                      } else {
                         core.fetch(json[0].zipball_url, (response) => {
                            try {
-                              const stream = new java.util.zip.ZipInputStream(response.stream());
+                              const stream = new ZipInputStream(response.stream());
                               const downloads = core.file(core.root, 'downloads');
                               let entry = undefined;
                               let output = undefined;
@@ -298,7 +317,7 @@ const µ = (µ, self) => eval(µ);
                                     file.dir();
                                     output || (output = file);
                                  } else {
-                                    const target = new java.io.FileOutputStream(file.add());
+                                    const target = new FileOutputStream(file.add());
                                     stream.transferTo(target);
                                     target.close();
                                  }
@@ -307,11 +326,7 @@ const µ = (µ, self) => eval(µ);
                               stream.close();
                               const destination = core.file(core.root, 'modules', source).dir();
                               [ ...destination.listFiles() ].forEach(core.clear);
-                              java.nio.file.Files.move(
-                                 output.io.toPath(),
-                                 destination.toPath(),
-                                 java.nio.file.StandardCopyOption.REPLACE_EXISTING
-                              );
+                              Files.move(output.io.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
                               output.remove();
                               core.modules[source] = json[0].id;
                               callback(true);
@@ -382,8 +397,7 @@ const µ = (µ, self) => eval(µ);
       // script file parser
       parse: (io) => {
          let output = undefined;
-         const source = Java.type('org.graalvm.polyglot.Source');
-         const builder = source.newBuilder('js', io).mimeType('application/javascript+module');
+         const builder = Source.newBuilder('js', io).mimeType('application/javascript+module');
          try {
             core.session.exporters.push((value) => (output = value));
             core.plugin.context().eval(builder.build());
@@ -445,12 +459,10 @@ const µ = (µ, self) => eval(µ);
       },
       tabComplete: (player, ...args) => {
          if (core.options.eval === 'enabled') {
-            const action = Java.type('net.md_5.bungee.api.ChatMessageType').ACTION_BAR;
-            const component = Java.type('net.md_5.bungee.api.chat.TextComponent');
             try {
-               player.sendMessage(action, new component(`§f${core.eval(player, ...args)}`));
+               player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(`§f${core.eval(player, ...args)}`));
             } catch (error) {
-               player.sendMessage(action, new component(`§4${error}`));
+               player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(`§4${error}`));
             }
          }
          const input = args.slice(-1)[0];
