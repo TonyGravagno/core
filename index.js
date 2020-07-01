@@ -77,13 +77,36 @@ const µ = (µ, self) => eval(µ);
             message = error.message;
             switch (type) {
                case 'TypeError':
-                  message = message.split('\n')[0];
+                  try {
+                     if (message.startsWith('invokeMember') || message.startsWith('execute on foreign object')) {
+                        const reason = message.split('failed due to: ')[1];
+                        if (reason.startsWith('no applicable overload found')) {
+                           const sets = reason.split('overloads:')[1].split(']],')[0].split(')]').map((set) => {
+                              return `(${set.split('(').slice(1).join('(')})`;
+                           });
+                           message = [ 'Invalid arguments! Expected:\u00a74', ...sets ].join('\n -> ').slice(0, -1);
+                        } else if (reason.startsWith('Arity error')) {
+                           message = `Insufficient arguments! Expected: ${reason.split('-')[1].split(' ')[2]}`;
+                        } else if (reason.startsWith('UnsupportedTypeException')) {
+                           message = 'Invalid arguments!';
+                        } else if (reason.startsWith('Unknown identifier')) {
+                           message = `That method (${reason.split(': ')[1]}) is not a member of its parent!`;
+                        } else if (reason.startsWith('Message not supported')) {
+                           message = `That method (${message.slice(14).split(')')[0]}) is not a member of its parent!`;
+                        } else {
+                           message = message.split('\n')[0];
+                        }
+                     }
+                  } catch (error) {
+                     message = message.split('\n')[0];
+                  }
                   break;
                case 'SyntaxError':
                   message = message.split(' ').slice(1).join(' ').split('\n')[0];
                   break;
             }
          } else {
+            error = `${error}`;
             type = error.split(' ')[0].slice(0, -1);
             message = error.split(' ').slice(1).join(' ');
          }
@@ -101,11 +124,7 @@ const µ = (µ, self) => eval(µ);
                   output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
                   break;
                case '[object Function]':
-                  if (result.hostFunction) {
-                     output = `hostFunction ${result.hostFunction}() { [native code] }`;
-                  } else {
-                     output = `${result}`.replace(/\r/g, '');
-                  }
+                  output = `${result}`.replace(/\r/g, '');
                   break;
                case '[foreign HostFunction]':
                   let input = args.slice(-1)[0].split('.').slice(-1)[0];
