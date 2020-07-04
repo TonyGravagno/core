@@ -1,4 +1,4 @@
-const µ = (µ, self) => eval(µ);
+const µ = (µ, self) => Polyglot.eval('js', µ);
 (function () {
    // import types
    const URL = Java.type('java.net.URL');
@@ -268,42 +268,47 @@ const µ = (µ, self) => eval(µ);
          return [ ...array ].sort().filter((value) => value.includes(query));
       },
 
+      // typescript generator
+      generate: () => {
+         const modules = Object.keys(core.modules);
+         const imports = modules.map((name, index) => {
+            return `import*as i${index} from'./modules/${name}/module';type t${index}=typeof i${index}.Main`;
+         });
+         const exports = modules.map((name, index) => {
+            return `import(name:'${name}'):t${index}`;
+         });
+         const dictionary = core.file(core.root, 'modules.d.ts');
+         dictionary.add();
+         dictionary.write(`${imports.join(';')};class core{${exports.join(';')}}`);
+      },
+
       // module importer
       import: (source) => {
          if (core.session.cache[source]) {
             return core.session.cache[source];
          } else {
             const file = core.file(core.root, `modules/${source}/package.json`);
-            if (file.exists) {
-               let info = undefined;
-               try {
-                  info = JSON.parse(file.read());
-               } catch (error) {
-                  throw `ImportError: "${file.path}" is not a valid JSON file!`;
-               }
-               (info.require || []).forEach((require) => {
-                  if (!core.modules[require]) {
-                     throw `ImportError: The required dependency "${require}" must be installed!`;
-                  }
-               });
-               if (info.main) {
-                  info.main.endsWith('.js') || (info.main += '.js');
-                  const index = core.file(`${file.parent.path}/${info.main}`);
-                  if (index.exists) {
-                     try {
-                        return (core.session.cache[source] = core.parse(index.io));
-                     } catch (error) {
-                        console.error(error.stack || error);
-                        throw `ImportError: "${index.path}" threw an error during evaluation!`;
-                     }
-                  } else {
-                     throw `ImportError: "${index.path}" does not exist!`;
+            let info = undefined;
+            try {
+               info = file.exists ? JSON.parse(file.read()) : { main: 'index' };
+            } catch (error) {
+               throw `ImportError: "${file.path}" is not a valid JSON file!`;
+            }
+            if (info.main) {
+               info.main.endsWith('.js') || (info.main += '.js');
+               const index = core.file(`${file.parent.path}/${info.main}`);
+               if (index.exists) {
+                  try {
+                     return (core.session.cache[source] = core.parse(index.io));
+                  } catch (error) {
+                     console.error(error.stack || error);
+                     throw `ImportError: "${index.path}" threw an error during evaluation!`;
                   }
                } else {
-                  throw `ImportError: "${file.path}" is not a valid package file!`;
+                  throw `ImportError: "${index.path}" does not exist!`;
                }
             } else {
-               throw `ImportError: "${file.path}" does not exist!`;
+               throw `ImportError: "${file.path}" is not a valid package file!`;
             }
          }
       },
@@ -317,7 +322,7 @@ const µ = (µ, self) => eval(µ);
                   console.error(`API - ${json.message}`);
                   callback(null, 'An API error occured!');
                } else {
-                  core.options.channel === 'unsafe' || (json = json.filter((re) => re.draft === false));
+                  json = json.filter((re) => re.draft === false);
                   core.options.channel === 'main' && (json = json.filter((re) => re.prerelease === false));
                   if (json[0]) {
                      if (core.modules[source] === json[0].id) {
@@ -373,7 +378,7 @@ const µ = (µ, self) => eval(µ);
 
       // persistent option storage
       get options () {
-         return core.data('grakkit/options', { channel: 'main', mode: 'manual' });
+         return core.data('grakkit/options');
       },
 
       // object pretty printer
@@ -577,8 +582,12 @@ const µ = (µ, self) => eval(µ);
                               } else {
                                  player.sendMessage('§7Installing...');
                                  core.install(value, (data, reason) => {
-                                    if (data) player.sendMessage('§7Module installed.');
-                                    else player.sendMessage(`§c${reason}`);
+                                    if (data) {
+                                       core.generate();
+                                       player.sendMessage('§7Module installed.');
+                                    } else {
+                                       player.sendMessage(`§c${reason}`);
+                                    }
                                  });
                               }
                               break;
@@ -587,6 +596,7 @@ const µ = (µ, self) => eval(µ);
                                  player.sendMessage('§7Deleting...');
                                  delete core.modules[value];
                                  core.file(core.root, `modules/${value}`).remove();
+                                 core.generate();
                                  player.sendMessage('§7Module deleted.');
                               } else {
                                  player.sendMessage('§cThat module has not been installed!');
@@ -613,7 +623,7 @@ const µ = (µ, self) => eval(µ);
                   break;
                case 'channel':
                   if (value) {
-                     if ([ 'main', 'dev', 'all' ].includes(value)) {
+                     if ([ 'main', 'dev' ].includes(value)) {
                         core.options.channel = value;
                         player.sendMessage('§7Release channel updated.');
                      } else {
@@ -644,7 +654,7 @@ const µ = (µ, self) => eval(µ);
                case 'add':
                   return core.from(value, core.session.modules);
                case 'channel':
-                  return core.from(value, [ 'main', 'dev', 'unsafe' ]);
+                  return core.from(value, [ 'main', 'dev' ]);
                case 'remove':
                case 'update':
                   return core.from(value, [ '*', ...Object.keys(core.modules) ]);
@@ -667,6 +677,18 @@ const µ = (µ, self) => eval(µ);
          value && (value = value.toLowerCase());
          if (option) {
             switch (option) {
+               case 'eval':
+                  if (value) {
+                     if ([ 'enabled', 'disabled' ].includes(value)) {
+                        core.options.eval = value;
+                        player.sendMessage(`§7Live evaluation ${value}.`);
+                     } else {
+                        player.sendMessage('§cThat is not a valid state!');
+                     }
+                  } else {
+                     player.sendMessage('§cYou must specify a state!');
+                  }
+                  break;
                case 'mode':
                   if (value) {
                      if ([ 'manual', 'automatic' ].includes(value)) {
@@ -679,16 +701,18 @@ const µ = (µ, self) => eval(µ);
                      player.sendMessage('§cYou must specify an update mode!');
                   }
                   break;
-               case 'eval':
+               case 'script':
                   if (value) {
-                     if ([ 'enabled', 'disabled' ].includes(value)) {
-                        core.options.eval = value;
-                        player.sendMessage(`§7Live evaluation ${value}.`);
+                     if (value.includes('/')) {
+                        const source = core.file(core.root, core.options.script);
+                        const target = core.file(core.root, value);
+                        Files.move(source.io.toPath(), target.io.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                        core.options.script = value;
                      } else {
-                        player.sendMessage('§cThat is not a valid state!');
+                        player.sendMessage('§cThat file name is invalid!');
                      }
                   } else {
-                     player.sendMessage('§cYou must specify a state!');
+                     player.sendMessage('§cYou must specify a file name!');
                   }
                   break;
                case 'update':
@@ -743,13 +767,8 @@ const µ = (µ, self) => eval(µ);
       }
    });
 
-   // parse scripts folder
-   [ ...core.file(core.root, 'scripts').dir().listFiles() ].filter((io) => !io.isDirectory()).forEach((io) => {
-      try {
-         core.parse(io);
-      } catch (error) {
-         console.error(error.stack || error);
-         console.error(`ScriptError: "${io.getPath().replace(/[\\]/g, '/')}" threw an error during evaluation!`);
-      }
-   });
+   // parse script
+   const script = core.file(core.root, core.options.script || 'user.js');
+   if (!script.exists) script.add(), script.write(`/** @type{import('./modules').core} */ const core = global.core;\n`);
+   core.parse(script.io);
 })();
