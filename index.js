@@ -1,4 +1,4 @@
-const µ = (µ, self) => Polyglot.eval('js', µ);
+const µ = (µ) => Polyglot.eval('js', µ);
 (function () {
    // import types
    const URL = Java.type('java.net.URL');
@@ -6,6 +6,7 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
    const Files = Java.type('java.nio.file.Files');
    const Bukkit = Java.type('org.bukkit.Bukkit');
    const Source = Java.type('org.graalvm.polyglot.Source');
+   const Command = Java.extend(Java.type('org.bukkit.command.Command'));
    const Scanner = Java.type('java.util.Scanner');
    const Listener = Java.extend(Java.type('org.bukkit.event.Listener'), {});
    const FileReader = Java.type('java.io.FileReader');
@@ -22,6 +23,11 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
    // useful shit
    const global = globalThis;
    const server = Bukkit.getServer();
+
+   // the holy grail
+   const commandMap = server.getClass().getDeclaredField('commandMap');
+   commandMap.setAccessible(true);
+   const registry = commandMap.get(server);
 
    // core functions
    const core = {
@@ -51,14 +57,28 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
          core.session.commands[namekey] = { execute: input.execute, tabComplete: input.tabComplete };
          const prefix = `(player,args)=>core.session.commands[${JSON.stringify(namekey)}]`;
          const suffix = "(player,...args.split(' '))";
-         core.plugin.register(
-            input.prefix,
-            input.name,
-            input.usage,
-            input.description,
-            `${prefix}.execute${suffix}`,
-            `${prefix}.tabComplete${suffix}`
-         );
+         const command = new Command(name, {
+            execute: (player, label, args) => {
+               try {
+                  eval(`${prefix}.execute${suffix}`)(player, ...args);
+                  return true;
+               } catch (error) {
+                  console.error(error.stack);
+                  return false;
+               }
+            },
+            tabComplete: (player, label, args) => {
+               try {
+                  return eval(`${prefix}.tabComplete${suffix}`)(player, ...args);
+               } catch (error) {
+                  console.error(error.stack);
+                  return [];
+               }
+            }
+         });
+         command.setUsage(input.usage);
+         command.setDescription(input.description);
+         registry.register(input.prefix, command);
       },
 
       // persistent data storage
@@ -115,16 +135,19 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
 
       // code evaluation
       eval: (player, ...args) => {
+         const self = global.hasOwnProperty('self');
          try {
             let output = undefined;
-            const result = µ(args.join(' '), player);
+            self || (global.self = player);
+            const result = µ(args.join(' '));
+            self || delete global.self;
             switch (toString.apply(result)) {
                case '[object Object]':
                   const names = Object.getOwnPropertyNames(result);
                   output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
                   break;
                case '[object Function]':
-                  output = `${result}`.replace(/\r/g, '');
+                  output = result.toString().replace(/\r/g, '');
                   break;
                case '[foreign HostFunction]':
                   let input = args.slice(-1)[0].split('.').slice(-1)[0];
@@ -137,6 +160,7 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
             }
             return output;
          } catch (error) {
+            self || delete global.self;
             throw core.error(error);
          }
       },
@@ -299,7 +323,7 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
                const index = core.file(`${file.parent.path}/${info.main}`);
                if (index.exists) {
                   try {
-                     return (core.session.cache[source] = core.parse(index.io));
+                     return (core.session.cache[source] = core.parse(index));
                   } catch (error) {
                      console.error(error.stack || error);
                      throw `ImportError: "${index.path}" threw an error during evaluation!`;
@@ -419,12 +443,13 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
       },
 
       // script file parser
-      parse: (io) => {
+      parse: (file) => {
          let output = undefined;
-         const builder = Source.newBuilder('js', io).mimeType('application/javascript+module');
+         const builder = Source.newBuilder('js', file.io).cached(false);
          try {
             core.session.exporters.push((value) => (output = value));
-            core.plugin.context().eval(builder.build());
+            const context = core.plugin.getClass().getDeclaredField('context').get(core.plugin);
+            context.eval(builder.mimeType('application/javascript+module').build());
             core.session.exporters.pop();
             return output;
          } catch (error) {
@@ -465,11 +490,13 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
             return object;
          }
       },
+
+      // per-refresh storage
       session: { cache: {}, commands: {}, exporters: [], data: {}, events: {}, modules: [] }
    };
 
    // extend basic shit to global
-   Object.assign(global, { core: core, global: global, server: server });
+   Object.assign(global, { core: core, global: global, server: server, net: Packages.net });
 
    // command: js
    core.command({
@@ -492,7 +519,7 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
          const input = args.slice(-1)[0];
          const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
          const nodes = input.replace(filter, '').replace(/(\[)|(\]\.)/g, '.').split('.');
-         let context = Object.assign(global, { self: global.self || player });
+         let context = Object.assign({ self: global.self }, global);
          let index = 0;
          while (index < nodes.length - 1) {
             let node = nodes[index++];
@@ -701,15 +728,21 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
                      player.sendMessage('§cYou must specify an update mode!');
                   }
                   break;
+               case 'refresh':
+                  server.getPluginManager().disablePlugin(core.plugin);
+                  server.getPluginManager().enablePlugin(core.plugin);
+                  player.sendMessage('§7Refresh complete.');
+                  break;
                case 'script':
                   if (value) {
                      if (value.includes('/')) {
-                        const source = core.file(core.root, core.options.script);
+                        player.sendMessage('§cThat file name is invalid!');
+                     } else {
+                        const source = core.file(core.root, core.options.script || 'user.js');
                         const target = core.file(core.root, value);
                         Files.move(source.io.toPath(), target.io.toPath(), StandardCopyOption.REPLACE_EXISTING);
                         core.options.script = value;
-                     } else {
-                        player.sendMessage('§cThat file name is invalid!');
+                        player.sendMessage('§7Script location updated.');
                      }
                   } else {
                      player.sendMessage('§cYou must specify a file name!');
@@ -735,14 +768,16 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
          } else if (value !== undefined) {
             switch (option) {
                case 'mode':
-                  return core.from(value, [ 'manual', 'automatic' ]);
+                  return core.from(value, [ 'automatic', 'manual' ]);
                case 'eval':
-                  return core.from(value, [ 'enabled', 'disabled' ]);
+                  return core.from(value, [ 'disabled', 'enabled' ]);
+               case 'script':
+                  return core.from(value, [ core.options.script || 'user.js' ]);
                default:
                   return [];
             }
          } else if (option !== undefined) {
-            return core.from(option, [ 'update', 'mode', 'eval' /* 'refresh' */ ]);
+            return core.from(option, [ 'eval', 'mode', 'refresh', 'script', 'update' ]);
          } else {
             return [];
          }
@@ -751,11 +786,13 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
 
    // add module tab-completion list
    core.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json', (response) => {
-      const json = response.json();
-      json && (core.session.modules = json);
+      if (response) {
+         const json = response.json();
+         json && (core.session.modules = json);
+      }
    });
 
-   // server reload handler
+   // plugin reload handler
    core.event('org.bukkit.event.server.PluginDisableEvent', (event) => {
       if (event.getPlugin() === core.plugin) {
          core.options.mode === 'automatic' && core.file(core.root, 'index.js').remove();
@@ -770,5 +807,5 @@ const µ = (µ, self) => Polyglot.eval('js', µ);
    // parse script
    const script = core.file(core.root, core.options.script || 'user.js');
    if (!script.exists) script.add(), script.write(`/** @type{import('./modules').core} */ const core = global.core;\n`);
-   core.parse(script.io);
+   core.parse(script);
 })();
