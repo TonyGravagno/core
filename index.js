@@ -60,7 +60,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
          const command = new Command(name, {
             execute: (player, label, args) => {
                try {
-                  eval(`${prefix}.execute${suffix}`)(player, ...args);
+                  eval(`${prefix}.execute${suffix}`)(player, [ ...args ].join(' '));
                   return true;
                } catch (error) {
                   console.error(error.stack);
@@ -69,7 +69,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
             },
             tabComplete: (player, label, args) => {
                try {
-                  return eval(`${prefix}.tabComplete${suffix}`)(player, ...args);
+                  return eval(`${prefix}.tabComplete${suffix}`)(player, [ ...args ].join(' '));
                } catch (error) {
                   console.error(error.stack);
                   return [];
