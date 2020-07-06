@@ -519,13 +519,14 @@ const µ = (µ) => Polyglot.eval('js', µ);
          const input = args.slice(-1)[0];
          const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
          const nodes = input.replace(filter, '').replace(/(\[)|(\]\.)/g, '.').split('.');
-         let context = Object.assign({ self: global.self }, global);
+         let context = global;
          let index = 0;
          while (index < nodes.length - 1) {
             let node = nodes[index++];
             [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
             node[0].match(/[0-9]/g) && (node = Number(node));
             if (context[node]) context = context[node];
+            else if (context === global && node === 'self') context = player;
             else index = Infinity;
          }
          if (index === nodes.length - 1) {
