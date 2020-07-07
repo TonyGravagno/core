@@ -485,7 +485,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
       send: (player, message, action) => {
          const limit = action ? 128 : 2048;
          message.length > limit && (message = `${message.slice(0, limit - 3)}...`);
-         if (action) player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
+         if (action) core.support.legacy || player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
          else player.sendMessage(message);
       },
 
@@ -564,7 +564,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
          }
       },
       tabComplete: (player, ...args) => {
-         if (core.support.legacy === false && core.options.eval === 'enabled') {
+         if (core.options.eval === 'enabled') {
             try {
                core.send(player, `§f${core.eval(player, ...args)}`, true);
             } catch (error) {
