@@ -12,13 +12,13 @@ const µ = (µ) => Polyglot.eval('js', µ);
    const FileReader = Java.type('java.io.FileReader');
    const FileWriter = Java.type('java.io.FileWriter');
    const PrintWriter = Java.type('java.io.PrintWriter');
-   const EventPriority = Java.type('org.bukkit.event.EventPriority');
-   const TextComponent = Java.type('net.md_5.bungee.api.chat.TextComponent');
    const BufferedReader = Java.type('java.io.BufferedReader');
    const ZipInputStream = Java.type('java.util.zip.ZipInputStream');
-   const ChatMessageType = Java.type('net.md_5.bungee.api.ChatMessageType');
    const FileOutputStream = Java.type('java.io.FileOutputStream');
    const StandardCopyOption = Java.type('java.nio.file.StandardCopyOption');
+
+   // optional types
+   let ChatMessageType, EventPriority, TextComponent;
 
    // useful shit
    const global = globalThis;
@@ -137,26 +137,30 @@ const µ = (µ) => Polyglot.eval('js', µ);
       eval: (player, ...args) => {
          const self = global.hasOwnProperty('self');
          try {
-            let output = undefined;
+            let output;
             self || (global.self = player);
             const result = µ(args.join(' '));
             self || delete global.self;
-            switch (toString.apply(result)) {
-               case '[object Object]':
-                  const names = Object.getOwnPropertyNames(result);
-                  output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
-                  break;
-               case '[object Function]':
-                  output = result.toString().replace(/\r/g, '');
-                  break;
-               case '[foreign HostFunction]':
-                  let input = args.slice(-1)[0].split('.').slice(-1)[0];
-                  input.endsWith(']') && (input = eval(input.replace(/.*\[/, '').slice(0, -1)));
-                  output = `hostFunction ${input.split(/[|;]/g)[0]}() { [native code] }`;
-                  break;
-               default:
-                  output = core.output(result);
-                  break;
+            if (![ null, undefined ].includes(result) && typeof result[''] === 'string') {
+               output = result[''];
+            } else {
+               switch (toString.apply(result)) {
+                  case '[object Object]':
+                     const names = Object.getOwnPropertyNames(result);
+                     output = `{ ${names.map((name) => `${name}: ${core.output(result[name])}`).join(', ')} }`;
+                     break;
+                  case '[object Function]':
+                     output = `${result}`.replace(/\r/g, '');
+                     break;
+                  case '[foreign HostFunction]':
+                     let input = args.slice(-1)[0].split('.').slice(-1)[0];
+                     input.endsWith(']') && (input = eval(input.replace(/.*\[/, '').slice(0, -1)));
+                     output = `hostFunction ${input.split(/[|;]/g)[0]}() { [native code] }`;
+                     break;
+                  default:
+                     output = core.output(result);
+                     break;
+               }
             }
             return output;
          } catch (error) {
@@ -175,13 +179,23 @@ const µ = (µ) => Polyglot.eval('js', µ);
          const store = core.session.events[name] || (core.session.events[name] = []);
          if (store.push(listener) === 1) {
             const manager = server.getPluginManager();
-            manager.registerEvent(
-               Java.type(name).class,
-               new Listener(),
-               EventPriority.HIGHEST,
-               (info, event) => store.forEach((listener) => listener(event)),
-               core.plugin
-            );
+            if (core.support.ancient) {
+               manager.registerEvent(
+                  eval(name),
+                  new Listener(),
+                  (info, event) => store.forEach((listener) => listener(event)),
+                  EventPriority.Highest,
+                  core.plugin
+               );
+            } else {
+               manager.registerEvent(
+                  Java.type(name).class,
+                  new Listener(),
+                  EventPriority.HIGHEST,
+                  (info, event) => store.forEach((listener) => listener(event)),
+                  core.plugin
+               );
+            }
          }
       },
 
@@ -312,7 +326,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
             return core.session.cache[source];
          } else {
             const file = core.file(core.root, `modules/${source}/package.json`);
-            let info = undefined;
+            let info;
             try {
                info = file.exists ? JSON.parse(file.read()) : { main: 'index' };
             } catch (error) {
@@ -356,8 +370,8 @@ const µ = (µ) => Polyglot.eval('js', µ);
                            try {
                               const stream = new ZipInputStream(response.stream());
                               const downloads = core.file(core.root, 'downloads');
-                              let entry = undefined;
-                              let output = undefined;
+                              let entry;
+                              let output;
                               downloads.dir();
                               while ((entry = stream.getNextEntry())) {
                                  const file = core.file(downloads.path, entry.getName());
@@ -444,12 +458,11 @@ const µ = (µ) => Polyglot.eval('js', µ);
 
       // script file parser
       parse: (file) => {
-         let output = undefined;
+         let output;
          const builder = Source.newBuilder('js', file.io).cached(false);
          try {
             core.session.exporters.push((value) => (output = value));
-            const context = core.plugin.getClass().getDeclaredField('context').get(core.plugin);
-            context.eval(builder.mimeType('application/javascript+module').build());
+            Context.eval(builder.mimeType('application/javascript+module').build());
             core.session.exporters.pop();
             return output;
          } catch (error) {
@@ -466,6 +479,14 @@ const µ = (µ) => Polyglot.eval('js', µ);
       // plugin folder location
       get root () {
          return core.plugin.getDataFolder().getPath().replace(/[\\]/g, '/');
+      },
+
+      // send message
+      send: (player, message, action) => {
+         const limit = action ? 128 : 2048;
+         message.length > limit && (message = `${message.slice(0, limit - 3)}...`);
+         if (action) player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
+         else player.sendMessage(message);
       },
 
       // object decircularizer
@@ -492,8 +513,42 @@ const µ = (µ) => Polyglot.eval('js', µ);
       },
 
       // per-refresh storage
-      session: { cache: {}, commands: {}, exporters: [], data: {}, events: {}, modules: [] }
+      session: { cache: {}, commands: {}, exporters: [], data: {}, events: {}, modules: [] },
+
+      // support type
+      support: { ancient: false, legacy: false },
+
+      // unload handler
+      unload: (event) => {
+         if (event.getPlugin() === core.plugin) {
+            core.options.mode === 'automatic' && core.file(core.root, 'index.js').remove();
+            Object.keys(core.session.data).forEach((path) => {
+               const file = core.file(core.root, `data/${path}.json`);
+               file.add();
+               file.write(JSON.stringify(core.serialize(core.session.data[path], true)));
+            });
+         }
+      }
    };
+
+   // context
+   const Context = core.plugin.getClass().static.context;
+
+   // legacy version support
+   try {
+      TextComponent = Java.type('net.md_5.bungee.api.chat.TextComponent');
+      ChatMessageType = Java.type('net.md_5.bungee.api.ChatMessageType');
+   } catch (error) {
+      core.support.legacy = true;
+   }
+
+   // ancient version support
+   try {
+      EventPriority = Java.type('org.bukkit.event.EventPriority');
+   } catch (error) {
+      EventPriority = Java.type('org.bukkit.event.Event$Priority');
+      core.support.ancient = true;
+   }
 
    // extend basic shit to global
    Object.assign(global, { core: core, global: global, server: server, net: Packages.net });
@@ -503,28 +558,38 @@ const µ = (µ) => Polyglot.eval('js', µ);
       name: 'js',
       execute: (player, ...args) => {
          try {
-            player.sendMessage(`§7${core.eval(player, ...args)}`);
+            core.send(player, `§7${core.eval(player, ...args)}`);
          } catch (error) {
-            player.sendMessage(`§c${error}`);
+            core.send(player, `§c${error}`);
          }
       },
       tabComplete: (player, ...args) => {
-         if (core.options.eval === 'enabled') {
+         if (core.support.legacy === false && core.options.eval === 'enabled') {
             try {
-               player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(`§f${core.eval(player, ...args)}`));
+               core.send(player, `§f${core.eval(player, ...args)}`, true);
             } catch (error) {
-               player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(`§4${error}`));
+               core.send(player, ChatMessageType.ACTION_BAR, new TextComponent(`§4${error}`));
             }
          }
          const input = args.slice(-1)[0];
          const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
-         const nodes = input.replace(filter, '').replace(/(\[)|(\]\.)/g, '.').split('.');
-         let context = global;
          let index = 0;
+         let string = null;
+         let nodes = input;
+         while (index < input.length) {
+            const char = input[index];
+            if (char === string) string = null;
+            else if ([ "'", '"', '`' ].includes(char)) string = char;
+            else if (!string && filter.test(char)) nodes = nodes.slice(index + 1);
+            ++index;
+         }
+         index = 0;
+         nodes = nodes.replace(/(\[)|(\]\.)/g, '.').split('.');
+         let context = global;
          while (index < nodes.length - 1) {
             let node = nodes[index++];
             [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
-            node[0].match(/[0-9]/g) && (node = Number(node));
+            node.length && node[0].match(/[0-9]/g) && (node = Number(node));
             if (context[node]) context = context[node];
             else if (context === global && node === 'self') context = player;
             else index = Infinity;
@@ -541,7 +606,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
                .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
                .map((key) => {
                   let property = '';
-                  if (key[0].match(/[0-9]/g)) property = `[${key}]`;
+                  if (key.length && key[0].match(/[0-9]/g)) property = `[${key}]`;
                   else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) property = `[\`${key.split('`').join('\\`')}\`]`;
                   else property = `.${key}`;
                   const path = base.split(property[0]);
@@ -570,35 +635,35 @@ const µ = (µ) => Polyglot.eval('js', µ);
                case 'update':
                   if (value === '*') {
                      if (option === 'add') {
-                        player.sendMessage('§7One sec, just need to download the entire GitHub database...');
+                        core.send(player, '§7One sec, just need to download the entire GitHub database...');
                      } else {
                         if (keys[0]) {
                            switch (option) {
                               case 'remove':
-                                 player.sendMessage('§7Deleting...');
+                                 core.send(player, '§7Deleting...');
                                  keys.forEach((value) => {
                                     delete core.modules[value];
                                     core.file(core.root, `modules/${value}`).remove();
-                                    player.sendMessage(`§7Module deleted. (${value})`);
+                                    core.send(player, `§7Module deleted. (${value})`);
                                  });
-                                 player.sendMessage('§7Modules deleted.');
+                                 core.send(player, '§7Modules deleted.');
                                  break;
                               case 'update':
-                                 player.sendMessage('§7Updating...');
+                                 core.send(player, '§7Updating...');
                                  let update = (index) => {
                                     const value = keys[index];
                                     core.install(value, (data, reason) => {
-                                       if (data) player.sendMessage(`§7Module updated. (${value})`);
-                                       else player.sendMessage(`§c${reason} §7(${value})`);
+                                       if (data) core.send(player, `§7Module updated. (${value})`);
+                                       else core.send(player, `§c${reason} §7(${value})`);
                                        if (++index < keys.length) update(index);
-                                       else player.sendMessage('§7Modules updated.');
+                                       else core.send(player, '§7Modules updated.');
                                     });
                                  };
                                  update(0);
                                  break;
                            }
                         } else {
-                           player.sendMessage(`§cThere are no modules to ${option}!`);
+                           core.send(player, `§cThere are no modules to ${option}!`);
                         }
                      }
                   } else if (value) {
@@ -606,70 +671,70 @@ const µ = (µ) => Polyglot.eval('js', µ);
                         switch (option) {
                            case 'add':
                               if (core.modules[value]) {
-                                 player.sendMessage('§cThat module is already installed!');
+                                 core.send(player, '§cThat module is already installed!');
                               } else {
-                                 player.sendMessage('§7Installing...');
+                                 core.send(player, '§7Installing...');
                                  core.install(value, (data, reason) => {
                                     if (data) {
                                        core.generate();
-                                       player.sendMessage('§7Module installed.');
+                                       core.send(player, '§7Module installed.');
                                     } else {
-                                       player.sendMessage(`§c${reason}`);
+                                       core.send(player, `§c${reason}`);
                                     }
                                  });
                               }
                               break;
                            case 'remove':
                               if (core.modules[value]) {
-                                 player.sendMessage('§7Deleting...');
+                                 core.send(player, '§7Deleting...');
                                  delete core.modules[value];
                                  core.file(core.root, `modules/${value}`).remove();
                                  core.generate();
-                                 player.sendMessage('§7Module deleted.');
+                                 core.send(player, '§7Module deleted.');
                               } else {
-                                 player.sendMessage('§cThat module has not been installed!');
+                                 core.send(player, '§cThat module has not been installed!');
                               }
                               break;
                            case 'update':
                               if (core.modules[value]) {
-                                 player.sendMessage('§7Updating...');
+                                 core.send(player, '§7Updating...');
                                  core.install(value, (data, reason) => {
-                                    if (data) player.sendMessage('§7Module updated.');
-                                    else player.sendMessage(`§c${reason}`);
+                                    if (data) core.send(player, '§7Module updated.');
+                                    else core.send(player, `§c${reason}`);
                                  });
                               } else {
-                                 player.sendMessage('§cThat module has not been installed!');
+                                 core.send(player, '§cThat module has not been installed!');
                               }
                               break;
                         }
                      } else {
-                        player.sendMessage('§cThat repository is invalid!');
+                        core.send(player, '§cThat repository is invalid!');
                      }
                   } else {
-                     player.sendMessage('§cYou must specify a repository!');
+                     core.send(player, '§cYou must specify a repository!');
                   }
                   break;
                case 'channel':
                   if (value) {
                      if ([ 'main', 'dev' ].includes(value)) {
                         core.options.channel = value;
-                        player.sendMessage('§7Release channel updated.');
+                        core.send(player, '§7Release channel updated.');
                      } else {
-                        player.sendMessage('§cThat is not a valid release channel!');
+                        core.send(player, '§cThat is not a valid release channel!');
                      }
                   } else {
-                     player.sendMessage('§cYou must specify a release channel!');
+                     core.send(player, '§cYou must specify a release channel!');
                   }
                   break;
                case 'list':
-                  player.sendMessage(`§7Installed modules: ${core.output(keys)}`);
+                  core.send(player, `§7Installed modules: ${core.output(keys)}`);
                   break;
                default:
-                  player.sendMessage('§cThat option does not exist!');
+                  core.send(player, '§cThat option does not exist!');
                   break;
             }
          } else {
-            player.sendMessage('§cYou must specify an option!');
+            core.send(player, '§cYou must specify an option!');
          }
       },
       tabComplete: (player, option, value, appendix) => {
@@ -709,56 +774,56 @@ const µ = (µ) => Polyglot.eval('js', µ);
                   if (value) {
                      if ([ 'enabled', 'disabled' ].includes(value)) {
                         core.options.eval = value;
-                        player.sendMessage(`§7Live evaluation ${value}.`);
+                        core.send(player, `§7Live evaluation ${value}.`);
                      } else {
-                        player.sendMessage('§cThat is not a valid state!');
+                        core.send(player, '§cThat is not a valid state!');
                      }
                   } else {
-                     player.sendMessage('§cYou must specify a state!');
+                     core.send(player, '§cYou must specify a state!');
                   }
                   break;
                case 'mode':
                   if (value) {
                      if ([ 'manual', 'automatic' ].includes(value)) {
                         core.options.mode = value;
-                        player.sendMessage('§7Update mode updated.');
+                        core.send(player, '§7Update mode updated.');
                      } else {
-                        player.sendMessage('§cThat is not a valid update mode!');
+                        core.send(player, '§cThat is not a valid update mode!');
                      }
                   } else {
-                     player.sendMessage('§cYou must specify an update mode!');
+                     core.send(player, '§cYou must specify an update mode!');
                   }
                   break;
                case 'refresh':
                   server.getPluginManager().disablePlugin(core.plugin);
                   server.getPluginManager().enablePlugin(core.plugin);
-                  player.sendMessage('§7Refresh complete.');
+                  core.send(player, '§7Refresh complete.');
                   break;
                case 'script':
                   if (value) {
                      if (value.includes('/')) {
-                        player.sendMessage('§cThat file name is invalid!');
+                        core.send(player, '§cThat file name is invalid!');
                      } else {
                         const source = core.file(core.root, core.options.script || 'user.js');
                         const target = core.file(core.root, value);
                         Files.move(source.io.toPath(), target.io.toPath(), StandardCopyOption.REPLACE_EXISTING);
                         core.options.script = value;
-                        player.sendMessage('§7Script location updated.');
+                        core.send(player, '§7Script location updated.');
                      }
                   } else {
-                     player.sendMessage('§cYou must specify a file name!');
+                     core.send(player, '§cYou must specify a file name!');
                   }
                   break;
                case 'update':
                   core.file(core.root, 'index.js').remove();
                   server.reload();
-                  player.sendMessage('§7Update complete.');
+                  core.send(player, '§7Update complete.');
                   break;
                default:
-                  player.sendMessage('§cThat option does not exist!');
+                  core.send(player, '§cThat option does not exist!');
             }
          } else {
-            player.sendMessage('§cYou must specify an option!');
+            core.send(player, '§cYou must specify an option!');
          }
       },
       tabComplete: (player, option, value, appendix) => {
@@ -785,28 +850,18 @@ const µ = (µ) => Polyglot.eval('js', µ);
       }
    });
 
-   // add module tab-completion list
-   core.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json', (response) => {
-      if (response) {
-         const json = response.json();
-         json && (core.session.modules = json);
-      }
-   });
-
-   // plugin reload handler
-   core.event('org.bukkit.event.server.PluginDisableEvent', (event) => {
-      if (event.getPlugin() === core.plugin) {
-         core.options.mode === 'automatic' && core.file(core.root, 'index.js').remove();
-         Object.keys(core.session.data).forEach((path) => {
-            const file = core.file(core.root, `data/${path}.json`);
-            file.add();
-            file.write(JSON.stringify(core.serialize(core.session.data[path], true)));
-         });
-      }
-   });
+   // unload trigger
+   if (core.support.ancient) core.event('org.bukkit.event.Event$Type.PLUGIN_DISABLE', core.unload);
+   else core.event('org.bukkit.event.server.PluginDisableEvent', core.unload);
 
    // parse script
    const script = core.file(core.root, core.options.script || 'user.js');
    if (!script.exists) script.add(), script.write(`/** @type{import('./modules').core} */ const core = global.core;\n`);
    core.parse(script);
+
+   // module tab-completion
+   core.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json', (response) => {
+      const json = response && response.json();
+      json && (core.session.modules = json);
+   });
 })();
