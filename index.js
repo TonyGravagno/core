@@ -48,19 +48,34 @@ const µ = (µ) => Polyglot.eval('js', µ);
                prefix: 'grakkit',
                usage: `/${name} <...args>`,
                description: '{ description }',
+               permission: {},
                execute: () => {},
                tabComplete: () => []
             },
             options
          );
          const namekey = `${input.prefix}:${name}`;
-         core.session.commands[namekey] = { execute: input.execute, tabComplete: input.tabComplete };
-         const prefix = `(player,args)=>core.session.commands[${JSON.stringify(namekey)}]`;
+         typeof input.permission === 'string' && (input.permission = { node: input.permission });
+         core.session.commands[namekey] = {
+            execute: input.execute,
+            tabComplete: input.tabComplete,
+            permission: input.permission
+         };
+         const prefix = `core.session.commands[${JSON.stringify(namekey)}]`;
          const suffix = "(player,...args.split(' '))";
          const command = new Command(name, {
             execute: (player, label, args) => {
                try {
-                  eval(`${prefix}.execute${suffix}`)(player, [ ...args ].join(' '));
+                  const permission = eval(`${prefix}.permission`);
+                  if (permission !== null && !player.hasPermission(permission.node)) {
+                     core.send(
+                        player,
+                        `${permission.message ||
+                           `\u00a7cYou lack the permission \u00a74(${permission.node}) \u00a7cto run this command!`}`
+                     );
+                  } else {
+                     eval(`(player,args)=>${prefix}.execute${suffix}`)(player, [ ...args ].join(' '));
+                  }
                   return true;
                } catch (error) {
                   console.error(error.stack);
@@ -69,7 +84,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
             },
             tabComplete: (player, label, args) => {
                try {
-                  return eval(`${prefix}.tabComplete${suffix}`)(player, [ ...args ].join(' '));
+                  return eval(`(player,args)=>${prefix}.tabComplete${suffix}`)(player, [ ...args ].join(' '));
                } catch (error) {
                   console.error(error.stack);
                   return [];
@@ -78,6 +93,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
          });
          command.setUsage(input.usage);
          command.setDescription(input.description);
+         command.setPermission(input.permission.node);
          registry.register(input.prefix, command);
       },
 
@@ -459,10 +475,10 @@ const µ = (µ) => Polyglot.eval('js', µ);
       // script file parser
       parse: (file) => {
          let output;
-         const builder = Source.newBuilder('js', file.io).cached(false);
+         const builder = Source.newBuilder('js', file.io);
          try {
             core.session.exporters.push((value) => (output = value));
-            Context.eval(builder.mimeType('application/javascript+module').build());
+            Context.eval(builder.mimeType('application/javascript+module').cached(false).build());
             core.session.exporters.pop();
             return output;
          } catch (error) {
@@ -556,6 +572,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
    // command: js
    core.command({
       name: 'js',
+      permission: 'grakkit.command.js',
       execute: (player, ...args) => {
          try {
             core.send(player, `§7${core.eval(player, ...args)}`);
@@ -568,11 +585,12 @@ const µ = (µ) => Polyglot.eval('js', µ);
             try {
                core.send(player, `§f${core.eval(player, ...args)}`, true);
             } catch (error) {
-               core.send(player, ChatMessageType.ACTION_BAR, new TextComponent(`§4${error}`));
+               core.send(player, `§4${error}`, true);
             }
          }
          const input = args.slice(-1)[0];
-         const filter = /.*(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
+         const single = /(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
+         const filter = /.*(\!|\^|\)|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
          let index = 0;
          let string = null;
          let nodes = input;
@@ -580,7 +598,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
             const char = input[index];
             if (char === string) string = null;
             else if ([ "'", '"', '`' ].includes(char)) string = char;
-            else if (!string && filter.test(char)) nodes = nodes.slice(index + 1);
+            else if (!string && single.test(char)) nodes = input.slice(index + 1);
             ++index;
          }
          index = 0;
@@ -599,6 +617,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
             let segment = nodes.slice(-1)[0];
             [ "'", '"', '`' ].includes(segment[0]) && (segment = segment.slice(1, -1));
             const properties = Object.getOwnPropertyNames(context);
+            if (context === global && !properties.includes('self')) properties.push('self');
             if (typeof context.length === 'number' && [ 'object', 'function' ].includes(typeof context[0])) {
                properties.push(...Array(context.length).join(' ').split(' ').map((value, index) => `${index}`));
             }
@@ -607,11 +626,12 @@ const µ = (µ) => Polyglot.eval('js', µ);
                .map((key) => {
                   let property = '';
                   if (key.length && key[0].match(/[0-9]/g)) property = `[${key}]`;
-                  else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) property = `[\`${key.split('`').join('\\`')}\`]`;
+                  else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) return null;
                   else property = `.${key}`;
                   const path = base.split(property[0]);
                   const name = property.slice(1);
-                  if (!base || !base.match(/[\.\[]/g)) return base.replace(base.replace(filter, ''), '') + name;
+                  if (!base || !base.match(/[\.\[]/g)) return base.split(single).slice(0, -1).join('') + name;
+                  else if (context === global) return base + name;
                   else if (name.includes(path.slice(-1)[0])) return path.slice(0, -1).join(property[0]) + property;
                })
                .filter((property) => property);
@@ -624,6 +644,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
    // command: module
    core.command({
       name: 'module',
+      permission: 'grakkit.command.module',
       execute: (player, option, value) => {
          option && (option = option.toLowerCase());
          value && (value = value.toLowerCase());
@@ -765,6 +786,7 @@ const µ = (µ) => Polyglot.eval('js', µ);
    // command: grakkit
    core.command({
       name: 'grakkit',
+      permission: 'grakkit.command.grakkit',
       execute: (player, option, value) => {
          option && (option = option.toLowerCase());
          value && (value = value.toLowerCase());
