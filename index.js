@@ -48,7 +48,6 @@ const µ = (µ) => Polyglot.eval('js', µ);
                prefix: 'grakkit',
                usage: `/${name} <...args>`,
                description: '{ description }',
-               permission: {},
                execute: () => {},
                tabComplete: () => []
             },
@@ -58,24 +57,14 @@ const µ = (µ) => Polyglot.eval('js', µ);
          typeof input.permission === 'string' && (input.permission = { node: input.permission });
          core.session.commands[namekey] = {
             execute: input.execute,
-            tabComplete: input.tabComplete,
-            permission: input.permission
+            tabComplete: input.tabComplete
          };
          const prefix = `core.session.commands[${JSON.stringify(namekey)}]`;
          const suffix = "(player,...args.split(' '))";
          const command = new Command(name, {
             execute: (player, label, args) => {
                try {
-                  const permission = eval(`${prefix}.permission`);
-                  if (permission !== null && !player.hasPermission(permission.node)) {
-                     core.send(
-                        player,
-                        `${permission.message ||
-                           `\u00a7cYou lack the permission \u00a74(${permission.node}) \u00a7cto run this command!`}`
-                     );
-                  } else {
-                     eval(`(player,args)=>${prefix}.execute${suffix}`)(player, [ ...args ].join(' '));
-                  }
+                  eval(`(player,args)=>${prefix}.execute${suffix}`)(player, [ ...args ].join(' '));
                   return true;
                } catch (error) {
                   console.error(error.stack);
@@ -93,7 +82,6 @@ const µ = (µ) => Polyglot.eval('js', µ);
          });
          command.setUsage(input.usage);
          command.setDescription(input.description);
-         command.setPermission(input.permission.node);
          registry.register(input.prefix, command);
       },
 
@@ -572,69 +560,76 @@ const µ = (µ) => Polyglot.eval('js', µ);
    // command: js
    core.command({
       name: 'js',
-      permission: 'grakkit.command.js',
       execute: (player, ...args) => {
-         try {
-            core.send(player, `§7${core.eval(player, ...args)}`);
-         } catch (error) {
-            core.send(player, `§c${error}`);
+         if (player.hasPermission('grakkit.command.js')) {
+            try {
+               core.send(player, `§7${core.eval(player, ...args)}`);
+            } catch (error) {
+               core.send(player, `§c${error}`);
+            }
+         } else {
+            core.send(player, '§cYou lack the permission §4(grakkit.command.js) §cto use that command!');
          }
       },
       tabComplete: (player, ...args) => {
-         if (core.options.eval === 'enabled') {
-            try {
-               core.send(player, `§f${core.eval(player, ...args)}`, true);
-            } catch (error) {
-               core.send(player, `§4${error}`, true);
+         if (player.hasPermission('grakkit.command.js')) {
+            if (core.options.eval === 'enabled') {
+               try {
+                  core.send(player, `§f${core.eval(player, ...args)}`, true);
+               } catch (error) {
+                  core.send(player, `§4${error}`, true);
+               }
             }
-         }
-         const input = args.slice(-1)[0];
-         const single = /(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
-         const filter = /.*(\!|\^|\)|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
-         let index = 0;
-         let string = null;
-         let nodes = input;
-         while (index < input.length) {
-            const char = input[index];
-            if (char === string) string = null;
-            else if ([ "'", '"', '`' ].includes(char)) string = char;
-            else if (!string && single.test(char)) nodes = input.slice(index + 1);
-            ++index;
-         }
-         index = 0;
-         nodes = nodes.replace(/(\[)|(\]\.)/g, '.').split('.');
-         let context = global;
-         while (index < nodes.length - 1) {
-            let node = nodes[index++];
-            [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
-            node.length && node[0].match(/[0-9]/g) && (node = Number(node));
-            if (context[node]) context = context[node];
-            else if (context === global && node === 'self') context = player;
-            else index = Infinity;
-         }
-         if (index === nodes.length - 1) {
-            const base = (input.match(filter) || [ '' ])[0] + input.replace(filter, '');
-            let segment = nodes.slice(-1)[0];
-            [ "'", '"', '`' ].includes(segment[0]) && (segment = segment.slice(1, -1));
-            const properties = Object.getOwnPropertyNames(context);
-            if (context === global && !properties.includes('self')) properties.push('self');
-            if (typeof context.length === 'number' && [ 'object', 'function' ].includes(typeof context[0])) {
-               properties.push(...Array(context.length).join(' ').split(' ').map((value, index) => `${index}`));
+            const input = args.slice(-1)[0];
+            const single = /(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
+            const filter = /.*(\!|\^|\)|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
+            let index = 0;
+            let string = null;
+            let nodes = input;
+            while (index < input.length) {
+               const char = input[index];
+               if (char === string) string = null;
+               else if ([ "'", '"', '`' ].includes(char)) string = char;
+               else if (!string && single.test(char)) nodes = input.slice(index + 1);
+               ++index;
             }
-            return properties
-               .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
-               .map((key) => {
-                  let property = '';
-                  if (key.length && key[0].match(/[0-9]/g)) property = `[${key}]`;
-                  else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) return null;
-                  else property = `.${key}`;
-                  const path = base.split(property[0]);
-                  const name = property.slice(1);
-                  if (!base || !base.match(/[\.\[]/g)) return base.split(single).slice(0, -1).join('') + name;
-                  else if (context === global) return base + name;
-                  else if (name.includes(path.slice(-1)[0])) return path.slice(0, -1).join(property[0]) + property;
-               })
-               .filter((property) => property);
+            index = 0;
+            nodes = nodes.replace(/(\[)|(\]\.)/g, '.').split('.');
+            let context = global;
+            while (index < nodes.length - 1) {
+               let node = nodes[index++];
+               [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
+               node.length && node[0].match(/[0-9]/g) && (node = Number(node));
+               if (context[node]) context = context[node];
+               else if (context === global && node === 'self') context = player;
+               else index = Infinity;
+            }
+            if (index === nodes.length - 1) {
+               const base = (input.match(filter) || [ '' ])[0] + input.replace(filter, '');
+               let segment = nodes.slice(-1)[0];
+               [ "'", '"', '`' ].includes(segment[0]) && (segment = segment.slice(1, -1));
+               const properties = Object.getOwnPropertyNames(context);
+               if (context === global && !properties.includes('self')) properties.push('self');
+               if (typeof context.length === 'number' && [ 'object', 'function' ].includes(typeof context[0])) {
+                  properties.push(...Array(context.length).join(' ').split(' ').map((value, index) => `${index}`));
+               }
+               return properties
+                  .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
+                  .map((key) => {
+                     let property = '';
+                     if (key.length && key[0].match(/[0-9]/g)) property = `[${key}]`;
+                     else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) return null;
+                     else property = `.${key}`;
+                     const path = base.split(property[0]);
+                     const name = property.slice(1);
+                     if (!base || !base.match(/[\.\[]/g)) return base.split(single).slice(0, -1).join('') + name;
+                     else if (context === global) return base + name;
+                     else if (name.includes(path.slice(-1)[0])) return path.slice(0, -1).join(property[0]) + property;
+                  })
+                  .filter((property) => property);
+            } else {
+               return [];
+            }
          } else {
             return [];
          }
@@ -644,139 +639,146 @@ const µ = (µ) => Polyglot.eval('js', µ);
    // command: module
    core.command({
       name: 'module',
-      permission: 'grakkit.command.module',
       execute: (player, option, value) => {
-         option && (option = option.toLowerCase());
-         value && (value = value.toLowerCase());
-         if (option) {
-            const keys = Object.keys(core.modules);
-            switch (option) {
-               case 'add':
-               case 'remove':
-               case 'update':
-                  if (value === '*') {
-                     if (option === 'add') {
-                        core.send(player, '§7One sec, just need to download the entire GitHub database...');
-                     } else {
-                        if (keys[0]) {
+         if (player.hasPermission('grakkit.command.module')) {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (option) {
+               const keys = Object.keys(core.modules);
+               switch (option) {
+                  case 'add':
+                  case 'remove':
+                  case 'update':
+                     if (value === '*') {
+                        if (option === 'add') {
+                           core.send(player, '§7One sec, just need to download the entire GitHub database...');
+                        } else {
+                           if (keys[0]) {
+                              switch (option) {
+                                 case 'remove':
+                                    core.send(player, '§7Deleting...');
+                                    keys.forEach((value) => {
+                                       delete core.modules[value];
+                                       core.file(core.root, `modules/${value}`).remove();
+                                       core.send(player, `§7Module deleted. (${value})`);
+                                    });
+                                    core.send(player, '§7Modules deleted.');
+                                    break;
+                                 case 'update':
+                                    core.send(player, '§7Updating...');
+                                    let update = (index) => {
+                                       const value = keys[index];
+                                       core.install(value, (data, reason) => {
+                                          if (data) core.send(player, `§7Module updated. (${value})`);
+                                          else core.send(player, `§c${reason} §7(${value})`);
+                                          if (++index < keys.length) update(index);
+                                          else core.send(player, '§7Modules updated.');
+                                       });
+                                    };
+                                    update(0);
+                                    break;
+                              }
+                           } else {
+                              core.send(player, `§cThere are no modules to ${option}!`);
+                           }
+                        }
+                     } else if (value) {
+                        if (value.split('/')[1] && value.split('/').length === 2) {
                            switch (option) {
+                              case 'add':
+                                 if (core.modules[value]) {
+                                    core.send(player, '§cThat module is already installed!');
+                                 } else {
+                                    core.send(player, '§7Installing...');
+                                    core.install(value, (data, reason) => {
+                                       if (data) {
+                                          core.generate();
+                                          core.send(player, '§7Module installed.');
+                                       } else {
+                                          core.send(player, `§c${reason}`);
+                                       }
+                                    });
+                                 }
+                                 break;
                               case 'remove':
-                                 core.send(player, '§7Deleting...');
-                                 keys.forEach((value) => {
+                                 if (core.modules[value]) {
+                                    core.send(player, '§7Deleting...');
                                     delete core.modules[value];
                                     core.file(core.root, `modules/${value}`).remove();
-                                    core.send(player, `§7Module deleted. (${value})`);
-                                 });
-                                 core.send(player, '§7Modules deleted.');
+                                    core.generate();
+                                    core.send(player, '§7Module deleted.');
+                                 } else {
+                                    core.send(player, '§cThat module has not been installed!');
+                                 }
                                  break;
                               case 'update':
-                                 core.send(player, '§7Updating...');
-                                 let update = (index) => {
-                                    const value = keys[index];
+                                 if (core.modules[value]) {
+                                    core.send(player, '§7Updating...');
                                     core.install(value, (data, reason) => {
-                                       if (data) core.send(player, `§7Module updated. (${value})`);
-                                       else core.send(player, `§c${reason} §7(${value})`);
-                                       if (++index < keys.length) update(index);
-                                       else core.send(player, '§7Modules updated.');
+                                       if (data) core.send(player, '§7Module updated.');
+                                       else core.send(player, `§c${reason}`);
                                     });
-                                 };
-                                 update(0);
+                                 } else {
+                                    core.send(player, '§cThat module has not been installed!');
+                                 }
                                  break;
                            }
                         } else {
-                           core.send(player, `§cThere are no modules to ${option}!`);
-                        }
-                     }
-                  } else if (value) {
-                     if (value.split('/')[1] && value.split('/').length === 2) {
-                        switch (option) {
-                           case 'add':
-                              if (core.modules[value]) {
-                                 core.send(player, '§cThat module is already installed!');
-                              } else {
-                                 core.send(player, '§7Installing...');
-                                 core.install(value, (data, reason) => {
-                                    if (data) {
-                                       core.generate();
-                                       core.send(player, '§7Module installed.');
-                                    } else {
-                                       core.send(player, `§c${reason}`);
-                                    }
-                                 });
-                              }
-                              break;
-                           case 'remove':
-                              if (core.modules[value]) {
-                                 core.send(player, '§7Deleting...');
-                                 delete core.modules[value];
-                                 core.file(core.root, `modules/${value}`).remove();
-                                 core.generate();
-                                 core.send(player, '§7Module deleted.');
-                              } else {
-                                 core.send(player, '§cThat module has not been installed!');
-                              }
-                              break;
-                           case 'update':
-                              if (core.modules[value]) {
-                                 core.send(player, '§7Updating...');
-                                 core.install(value, (data, reason) => {
-                                    if (data) core.send(player, '§7Module updated.');
-                                    else core.send(player, `§c${reason}`);
-                                 });
-                              } else {
-                                 core.send(player, '§cThat module has not been installed!');
-                              }
-                              break;
+                           core.send(player, '§cThat repository is invalid!');
                         }
                      } else {
-                        core.send(player, '§cThat repository is invalid!');
+                        core.send(player, '§cYou must specify a repository!');
                      }
-                  } else {
-                     core.send(player, '§cYou must specify a repository!');
-                  }
-                  break;
-               case 'channel':
-                  if (value) {
-                     if ([ 'main', 'dev' ].includes(value)) {
-                        core.options.channel = value;
-                        core.send(player, '§7Release channel updated.');
+                     break;
+                  case 'channel':
+                     if (value) {
+                        if ([ 'main', 'dev' ].includes(value)) {
+                           core.options.channel = value;
+                           core.send(player, '§7Release channel updated.');
+                        } else {
+                           core.send(player, '§cThat is not a valid release channel!');
+                        }
                      } else {
-                        core.send(player, '§cThat is not a valid release channel!');
+                        core.send(player, '§cYou must specify a release channel!');
                      }
-                  } else {
-                     core.send(player, '§cYou must specify a release channel!');
-                  }
-                  break;
-               case 'list':
-                  core.send(player, `§7Installed modules: ${core.output(keys)}`);
-                  break;
-               default:
-                  core.send(player, '§cThat option does not exist!');
-                  break;
+                     break;
+                  case 'list':
+                     core.send(player, `§7Installed modules: ${core.output(keys)}`);
+                     break;
+                  default:
+                     core.send(player, '§cThat option does not exist!');
+                     break;
+               }
+            } else {
+               core.send(player, '§cYou must specify an option!');
             }
          } else {
-            core.send(player, '§cYou must specify an option!');
+            core.send(player, '§cYou lack the permission §4(grakkit.command.module) §cto use that command!');
          }
       },
       tabComplete: (player, option, value, appendix) => {
-         option && (option = option.toLowerCase());
-         value && (value = value.toLowerCase());
-         if (appendix !== undefined) {
-            return [];
-         } else if (value !== undefined) {
-            switch (option) {
-               case 'add':
-                  return core.from(value, core.session.modules);
-               case 'channel':
-                  return core.from(value, [ 'main', 'dev' ]);
-               case 'remove':
-               case 'update':
-                  return core.from(value, [ '*', ...Object.keys(core.modules) ]);
-               default:
-                  return [];
+         if (player.hasPermission('grakkit.command.module')) {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (appendix !== undefined) {
+               return [];
+            } else if (value !== undefined) {
+               switch (option) {
+                  case 'add':
+                     return core.from(value, core.session.modules);
+                  case 'channel':
+                     return core.from(value, [ 'main', 'dev' ]);
+                  case 'remove':
+                  case 'update':
+                     return core.from(value, [ '*', ...Object.keys(core.modules) ]);
+                  default:
+                     return [];
+               }
+            } else if (option !== undefined) {
+               return core.from(option, [ 'add', 'channel', 'list', 'remove', 'update' ]);
+            } else {
+               return [];
             }
-         } else if (option !== undefined) {
-            return core.from(option, [ 'add', 'channel', 'list', 'remove', 'update' ]);
          } else {
             return [];
          }
@@ -786,86 +788,93 @@ const µ = (µ) => Polyglot.eval('js', µ);
    // command: grakkit
    core.command({
       name: 'grakkit',
-      permission: 'grakkit.command.grakkit',
       execute: (player, option, value) => {
-         option && (option = option.toLowerCase());
-         value && (value = value.toLowerCase());
-         if (option) {
-            switch (option) {
-               case 'eval':
-                  if (value) {
-                     if ([ 'enabled', 'disabled' ].includes(value)) {
-                        core.options.eval = value;
-                        core.send(player, `§7Live evaluation ${value}.`);
+         if (player.hasPermission('grakkit.command.grakkit')) {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (option) {
+               switch (option) {
+                  case 'eval':
+                     if (value) {
+                        if ([ 'enabled', 'disabled' ].includes(value)) {
+                           core.options.eval = value;
+                           core.send(player, `§7Live evaluation ${value}.`);
+                        } else {
+                           core.send(player, '§cThat is not a valid state!');
+                        }
                      } else {
-                        core.send(player, '§cThat is not a valid state!');
+                        core.send(player, '§cYou must specify a state!');
                      }
-                  } else {
-                     core.send(player, '§cYou must specify a state!');
-                  }
-                  break;
-               case 'mode':
-                  if (value) {
-                     if ([ 'manual', 'automatic' ].includes(value)) {
-                        core.options.mode = value;
-                        core.send(player, '§7Update mode updated.');
+                     break;
+                  case 'mode':
+                     if (value) {
+                        if ([ 'manual', 'automatic' ].includes(value)) {
+                           core.options.mode = value;
+                           core.send(player, '§7Update mode updated.');
+                        } else {
+                           core.send(player, '§cThat is not a valid update mode!');
+                        }
                      } else {
-                        core.send(player, '§cThat is not a valid update mode!');
+                        core.send(player, '§cYou must specify an update mode!');
                      }
-                  } else {
-                     core.send(player, '§cYou must specify an update mode!');
-                  }
-                  break;
-               case 'refresh':
-                  server.getPluginManager().disablePlugin(core.plugin);
-                  server.getPluginManager().enablePlugin(core.plugin);
-                  core.send(player, '§7Refresh complete.');
-                  break;
-               case 'script':
-                  if (value) {
-                     if (value.includes('/')) {
-                        core.send(player, '§cThat file name is invalid!');
+                     break;
+                  case 'refresh':
+                     server.getPluginManager().disablePlugin(core.plugin);
+                     server.getPluginManager().enablePlugin(core.plugin);
+                     core.send(player, '§7Refresh complete.');
+                     break;
+                  case 'script':
+                     if (value) {
+                        if (value.includes('/')) {
+                           core.send(player, '§cThat file name is invalid!');
+                        } else {
+                           const source = core.file(core.root, core.options.script || 'user.js');
+                           const target = core.file(core.root, value);
+                           Files.move(source.io.toPath(), target.io.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                           core.options.script = value;
+                           core.send(player, '§7Script location updated.');
+                        }
                      } else {
-                        const source = core.file(core.root, core.options.script || 'user.js');
-                        const target = core.file(core.root, value);
-                        Files.move(source.io.toPath(), target.io.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                        core.options.script = value;
-                        core.send(player, '§7Script location updated.');
+                        core.send(player, '§cYou must specify a file name!');
                      }
-                  } else {
-                     core.send(player, '§cYou must specify a file name!');
-                  }
-                  break;
-               case 'update':
-                  core.file(core.root, 'index.js').remove();
-                  server.reload();
-                  core.send(player, '§7Update complete.');
-                  break;
-               default:
-                  core.send(player, '§cThat option does not exist!');
+                     break;
+                  case 'update':
+                     core.file(core.root, 'index.js').remove();
+                     server.reload();
+                     core.send(player, '§7Update complete.');
+                     break;
+                  default:
+                     core.send(player, '§cThat option does not exist!');
+               }
+            } else {
+               core.send(player, '§cYou must specify an option!');
             }
          } else {
-            core.send(player, '§cYou must specify an option!');
+            core.send(player, '§cYou lack the permission §4(grakkit.command.grakkit) §cto use that command!');
          }
       },
       tabComplete: (player, option, value, appendix) => {
-         option && (option = option.toLowerCase());
-         value && (value = value.toLowerCase());
-         if (appendix !== undefined) {
-            return [];
-         } else if (value !== undefined) {
-            switch (option) {
-               case 'mode':
-                  return core.from(value, [ 'automatic', 'manual' ]);
-               case 'eval':
-                  return core.from(value, [ 'disabled', 'enabled' ]);
-               case 'script':
-                  return core.from(value, [ core.options.script || 'user.js' ]);
-               default:
-                  return [];
+         if (player.hasPermission('grakkit.command.grakkit')) {
+            option && (option = option.toLowerCase());
+            value && (value = value.toLowerCase());
+            if (appendix !== undefined) {
+               return [];
+            } else if (value !== undefined) {
+               switch (option) {
+                  case 'mode':
+                     return core.from(value, [ 'automatic', 'manual' ]);
+                  case 'eval':
+                     return core.from(value, [ 'disabled', 'enabled' ]);
+                  case 'script':
+                     return core.from(value, [ core.options.script || 'user.js' ]);
+                  default:
+                     return [];
+               }
+            } else if (option !== undefined) {
+               return core.from(option, [ 'eval', 'mode', 'refresh', 'script', 'update' ]);
+            } else {
+               return [];
             }
-         } else if (option !== undefined) {
-            return core.from(option, [ 'eval', 'mode', 'refresh', 'script', 'update' ]);
          } else {
             return [];
          }
