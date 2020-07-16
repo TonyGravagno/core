@@ -632,6 +632,7 @@
          },
          update: (key) => {
             if (core.module.list[key]) {
+               core.module.delete(key);
                core.module.list[key] = core.module.download(key);
             } else {
                throw 'module-not-installed';
