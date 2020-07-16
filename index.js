@@ -289,25 +289,24 @@
          link.setInstanceFollowRedirects(true);
          const code = link.getResponseCode();
          if (code === 200) {
-            const thing = {
+            return {
                json: () => {
                   try {
-                     return JSON.parse(thing.read());
+                     return JSON.parse(new Scanner(link.getInputStream()).useDelimiter('\\A').next());
                   } catch (error) {
                      return null;
                   }
                },
                read: () => {
-                  return new Scanner(thing.stream()).useDelimiter('\\A').next();
+                  return new Scanner(link.getInputStream()).useDelimiter('\\A').next();
                },
                stream: () => {
                   return link.getInputStream();
                },
                unzip: (to) => {
-                  return core.unzip(thing.stream(), to);
+                  return core.unzip(link.getInputStream(), to);
                }
             };
-            return thing;
          } else {
             throw code;
          }
@@ -418,7 +417,7 @@
             flush: () => {
                core.chain(io, (io, loop) => {
                   const up = io.getParentFile();
-                  up && !up.listFiles()[0] && up.delete() && loop(up);
+                  up && up.listFiles() && !up.listFiles()[0] && up.delete() && loop(up);
                });
                return thing;
             },
@@ -455,9 +454,9 @@
             transfer: (to, action) => {
                core.chain([ io, to ], (io, loop) => {
                   if (io[0].isDirectory()) {
-                     io[1].mkdir();
+                     core.file(io[1].getPath()).dir();
                      [ ...io[0].listFiles() ].forEach((from) => {
-                        loop([ from, Paths.get(io[1].getPath(), from.getName()).toFile() ]);
+                        loop([ from, core.file(io[1].getPath(), from.getName()).io ]);
                      });
                   } else if (io[0].exists() && !io[1].exists()) {
                      Files[action](io[0].toPath(), io[1].toPath(), StandardCopyOption.REPLACE_EXISTING);
@@ -580,7 +579,9 @@
                      core.send(player, '§cThat module has not already been installed!');
                      break;
                   default:
+                     core.send(player, '§cAn unexpected error occured!');
                      console.error(error.stack || error);
+                     break;
                }
             }
          },
@@ -598,8 +599,8 @@
                   throw 'module-already-updated';
                } else {
                   try {
-                     const from = core.fetch(latest.zipball_url).unzip(Paths.get(core.root, 'downloads', key).toFile());
-                     from.child(0).transfer(Paths.get(core.root, 'modules', key).toFile(), 'move').remove();
+                     const from = core.fetch(latest.zipball_url).unzip(core.root.file('downloads', key).io);
+                     from.child(0).transfer(core.root.file('modules', key).io, 'move').remove();
                      return latest.name;
                   } catch (error) {
                      core.root.file('downloads', key).remove();
