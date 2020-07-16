@@ -592,6 +592,9 @@
                core.module.list[key] = core.module.download(key);
             }
          },
+         delete: (key) => {
+            core.root.file('modules', key).remove();
+         },
          download: (key) => {
             const latest = core.module.latest(key);
             if (latest) {
@@ -600,6 +603,7 @@
                } else {
                   try {
                      const from = core.fetch(latest.zipball_url).unzip(core.root.file('downloads', key).io);
+                     core.module.delete(key);
                      from.child(0).transfer(core.root.file('modules', key).io, 'move').remove();
                      return latest.name;
                   } catch (error) {
@@ -612,9 +616,6 @@
             } else {
                throw 'module-not-available';
             }
-         },
-         delete: (key) => {
-            core.root.file('modules', key).remove();
          },
          latest: (key) => {
             return core.fetch(`https://api.github.com/repos/${key}/tags`).json()[0];
@@ -632,7 +633,6 @@
          },
          update: (key) => {
             if (core.module.list[key]) {
-               core.module.delete(key);
                core.module.list[key] = core.module.download(key);
             } else {
                throw 'module-not-installed';
