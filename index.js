@@ -485,7 +485,7 @@
       import: (source) => {
          if (typeof source !== 'string') throw 'TypeError: Argument 1 must be of type "string"';
          if (source[0] === '@') {
-            core.module.import(source.slice(1));
+            return core.module.import(source.slice(1));
          } else {
             const origin = core.module.state || core.root;
             const importer = core.root.file('import.js');
