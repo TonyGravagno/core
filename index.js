@@ -150,6 +150,9 @@
             registry.register(options.fallback || 'grakkit', command);
          }
       },
+      get context () {
+         return context;
+      },
       /**
        * @callback core$data
        * @param {...string} path
@@ -474,26 +477,33 @@
          };
          return thing;
       },
-      import: (key) => {
-         if (core.session.module[key]) {
-            return core.session.module[key];
+      /**
+       * @callback core$import
+       * @param {string} source
+       * @returns {any}
+       */
+      import: (source) => {
+         if (typeof source !== 'string') throw 'TypeError: Argument 1 must be of type "string"';
+         if (source[0] === '@') {
+            core.module.import(source.slice(1));
          } else {
-            const folder = core.root.file('modules', key);
-            let info;
+            const origin = core.module.state || core.root;
+            const importer = core.root.file('import.js');
+            const path = origin.io.getPath().replace(/(\\)/g, '/');
+            let result = null;
+            core.session.export.push((output) => (result = output));
+            importer.write(`import * as output from '../../${path}'; core.export(output);`);
+            const state = core.module.state;
+            core.module.state = origin;
             try {
-               info = folder.file('package.json').json() || {};
-            } catch (error) {
-               info = {};
-            }
-            let output;
-            core.session.export.push((value) => (output = value));
-            try {
-               folder.file(info.main || 'index.js').parse();
+               importer.parse();
+               core.module.state = state;
                core.session.export.pop();
-               return output;
+               return result;
             } catch (error) {
+               console.error(`An error occured while attempting to evaluate the "${path}" file!`);
+               core.module.state = state;
                core.session.export.pop();
-               console.error(`An error occured while attempting to evaluate the "${key}" module!`);
                throw error;
             }
          }
@@ -524,6 +534,11 @@
        * @returns {void}
        */
       /**
+       * @callback core$module$import
+       * @param {string} key
+       * @returns {any}
+       */
+      /**
        * @callback core$module$latest
        * @param {string} key
        * @returns {{
@@ -548,6 +563,7 @@
        *    add: core$module$add,
        *    delete: core$module$delete,
        *    download: core$module$download,
+       *    import: core$module$import,
        *    latest: core$module$latest,
        *    list: core$module$list,
        *    remove: core$module$remove
@@ -617,6 +633,35 @@
                throw 'module-not-available';
             }
          },
+         import: (key) => {
+            if (core.session.module[key]) {
+               return core.session.module[key];
+            } else {
+               const folder = core.root.file('modules', key);
+               let info;
+               try {
+                  info = folder.file('package.json').json() || {};
+               } catch (error) {
+                  info = {};
+               }
+               let output;
+               core.session.export.push((value) => (output = value));
+               const main = folder.file(info.main || 'index.js');
+               const state = core.module.state;
+               core.module.state = main;
+               try {
+                  main.parse();
+                  core.module.state = state;
+                  core.session.export.pop();
+                  return output;
+               } catch (error) {
+                  console.error(`An error occured while attempting to evaluate the "${key}" module!`);
+                  core.module.state = state;
+                  core.session.export.pop();
+                  throw error;
+               }
+            }
+         },
          latest: (key) => {
             return core.fetch(`https://api.github.com/repos/${key}/tags`).json()[0];
          },
@@ -631,6 +676,7 @@
                throw 'module-not-installed';
             }
          },
+         state: null,
          update: (key) => {
             if (core.module.list[key]) {
                core.module.list[key] = core.module.download(key);
