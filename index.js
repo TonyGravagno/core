@@ -345,6 +345,10 @@
        * @returns {core$file$}
        */
       /**
+       * @callback core$file$read
+       * @returns {string}
+       */
+      /**
        * @callback core$file$remove
        * @returns {core$file$}
        */
@@ -472,7 +476,7 @@
                return thing;
             },
             unzip: (to) => {
-               core.unzip(new FileInputStream(io), to);
+               return core.unzip(new FileInputStream(io), to);
             }
          };
          return thing;
