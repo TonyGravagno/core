@@ -562,6 +562,11 @@
        * @returns {void}
        */
       /**
+       * @callback core$module$update
+       * @param {string} key
+       * @returns {void}
+       */
+      /**
        * @typedef {{
        *    action: core$module$action,
        *    add: core$module$add,
@@ -570,7 +575,8 @@
        *    import: core$module$import,
        *    latest: core$module$latest,
        *    list: core$module$list,
-       *    remove: core$module$remove
+       *    remove: core$module$remove,
+       *    update: core$module$update
        * }} core$module
        */
       module: {
@@ -793,7 +799,15 @@
        *    module: any
        * }} core$session
        */
-      session: { command: {}, data: {}, event: {}, export: [], module: {} },
+      session: {
+         command: {},
+         data: {},
+         event: {},
+         export: [],
+         get module () {
+            return core.data('modules');
+         }
+      },
       /**
        * @callback core$send
        * @param {any} player
@@ -962,14 +976,36 @@
    });
 
    core.command({
-      name: 'refresh',
-      permission: 'grakkit.command.refresh',
-      error: '§cYou lack the permission §4(grakkit.command.refresh) §cto use that command!',
-      execute: (player) => {
-         core.send(player, '§7Refreshing...');
-         manager.disablePlugin(plugin);
-         manager.enablePlugin(plugin);
-         core.send(player, '§7Refresh Complete.');
+      name: 'grakkit',
+      permission: 'grakkit.command.grakkit',
+      error: '§cYou lack the permission §4(grakkit.command.grakkit) §cto use that command!',
+      execute: (player, action) => {
+         if (action) {
+            switch (action) {
+               case 'refresh':
+                  core.send(player, '§7Refreshing...');
+                  manager.disablePlugin(plugin);
+                  manager.enablePlugin(plugin);
+                  core.send(player, '§7Refresh Complete.');
+                  break;
+               case 'update':
+                  core.send(player, '§7Updating...');
+                  core.root.file('index.js').remove();
+                  server.reload();
+                  core.send(player, '§7Update Complete.');
+                  break;
+               default:
+                  core.send(player, '§cThat action is invalid!');
+                  break;
+            }
+         } else {
+            core.send(player, '§cYou must specify an action!');
+         }
+      },
+      tabComplete: (player, ...args) => {
+         if (args.length === 1) {
+            return [ 'refresh', 'update' ].filter((value) => value.includes(args[0]));
+         }
       }
    });
 
