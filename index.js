@@ -253,6 +253,9 @@
                   );
                return thing;
             },
+            get path () {
+               return io.getPath().replace(/(\\)/g, '/');
+            },
             read: () => {
                return io.exists() && !io.isDirectory() ? Files.readString(io.toPath()) : null;
             },
@@ -731,36 +734,35 @@
    }
 
    try {
-      console.log('Downloading typescript definition files...');
-      [ 'classes', 'core', 'events', 'types' ].map((name) => `${name}.d.ts`).forEach((name) => {
-         const target = core.root.file('dict', name);
-         target.add().write(core.fetch(`${master}/dict/${name}`).read());
-      });
+      core.root.file('dict').exists ||
+         [ 'classes', 'core', 'events', 'types' ].map((name) => `${name}.d.ts`).forEach((name) => {
+            const target = core.root.file('dict', name);
+            console.log(`Downloading typescript definition file... ${target.path}`);
+            target.add().write(core.fetch(`${master}/dict/${name}`).read());
+         });
    } catch (error) {
-      console.error('An error occured while attempting to download the typescript definiton files!');
+      console.error('An error occured while attempting to download a typescript definiton file!');
    }
 
    const user = core.root.file('user.js');
-   try {
-      const content = [
-         "/** @type {import('./dict/core').core} */ const core = global.core;",
-         "/** @type {import('./dict/classes').Server} */ const server = global.server;",
-         ''
-      ];
-      user.exists || user.add().write(content.join('\n'));
-      user.parse();
-   } catch (error) {
-      console.error(`An error occured while attempting to evaluate the "${user.path}" file!`);
-   }
+   user.exists ||
+      user
+         .add()
+         .write(
+            [
+               "/** @type {import('./dict/core').core} */ const core = global.core;",
+               "/** @type {import('./dict/classes').Server} */ const server = global.server;",
+               ''
+            ].join('\n')
+         );
 
-   const scripts = core.root.file('scripts').dir().io.listFiles();
-   scripts &&
-      scripts.forEach((io) => {
-         const script = core.file(io.getPath());
-         try {
-            script.parse();
-         } catch (error) {
-            console.error(`An error occured while attempting to evaluate the "${script.path}" file!`);
-         }
-      });
+   [ user.io, ...(core.root.file('scripts').dir().io.listFiles() || []) ].forEach((io) => {
+      const script = core.file(io.getPath());
+      try {
+         console.log(`Evaluating... ${script.path}`);
+         script.parse();
+      } catch (error) {
+         console.error(`An error occured while attempting to evaluate the "${script.path}" file!`);
+      }
+   });
 })();
