@@ -43,69 +43,12 @@
 
    const circular = function () {};
    let trusted = [];
-
-   /**
-    * @type {{
-    *    chain: core$chain,
-    *    command: core$command,
-    *    context: any,
-    *    data: core$data,
-    *    error: core$error,
-    *    eval: core$eval,
-    *    event: core$event,
-    *    export: core$export,
-    *    fetch: core$fetch,
-    *    file: core$file,
-    *    import: core$import,
-    *    js: core$js,
-    *    manager: any,
-    *    module: core$module,
-    *    output: core$output,
-    *    plugin: any,
-    *    registry: any,
-    *    root: core$file$,
-    *    send: core$send,
-    *    serialize: core$serialize,
-    *    session: core$session,
-    *    unzip: core$unzip
-    * }}
-    */
+   /** @type {import('./dict/core').core} */
    const core = {
-      /**
-       * @callback core$chain
-       * @param {any} base
-       * @param {function} modifier
-       * @returns {void}
-       */
       chain: (base, modifier) => {
          const chain = (object) => modifier(object, chain);
          chain(base);
       },
-      /**
-       * @callback core$command$execute
-       * @param {any} player
-       * @param {...string} args
-       * @returns {void}
-       */
-      /**
-       * @callback core$comamnd$tabComplete
-       * @param {any} player
-       * @param {...string} args
-       * @returns {string[]}
-       */
-      /**
-       * @callback core$command
-       * @param {{
-       *    name: string,
-       *    error?: string,
-       *    aliases?: string[],
-       *    execute: core$command$execute,
-       *    fallback?: string,
-       *    permission?: string,
-       *    tabComplete: core$comamnd$tabComplete
-       * }} options
-       * @returns {void}
-       */
       command: (options) => {
          core.session.command[options.name] = { execute: options.execute, tabComplete: options.tabComplete };
          if (!registry.getCommand(options.name)) {
@@ -153,22 +96,12 @@
       get context () {
          return context;
       },
-      /**
-       * @callback core$data
-       * @param {...string} path
-       * @returns {any}
-       */
       data: (...path) => {
          const name = Paths.get(...path).normalize().toString();
          const store = core.session.data;
          store[name] || (store[name] = core.root.file('data', `${path}.json`).json() || {});
          return store[name];
       },
-      /**
-       * @callback core$error
-       * @param {string} error
-       * @returns {string}
-       */
       error: (error) => {
          let type = 'Error';
          let message = `${error}`;
@@ -212,20 +145,9 @@
          }
          return `${type}: ${message}`;
       },
-      /**
-       * @callback core$eval
-       * @param {string} code
-       * @returns {any}
-       */
       eval: (code) => {
          return Polyglot.eval('js', code);
       },
-      /**
-       * @callback core$event
-       * @param {string} name
-       * @param {...function} listeners
-       * @returns {void}
-       */
       event: (name, ...listeners) => {
          const store = core.session.event[name] || (core.session.event[name] = []);
          listeners.forEach((listener) => {
@@ -250,41 +172,9 @@
             }
          });
       },
-      /**
-       * @callback core$export
-       * @param {any} object
-       * @returns {void}
-       */
       export: (object) => {
          (core.session.export.slice(-1)[0] || (() => {}))(object);
       },
-      /**
-       * @callback core$fetch$json
-       * @returns {any}
-       */
-      /**
-       * @callback core$fetch$read
-       * @returns {string}
-       */
-      /**
-       * @callback core$fetch$stream
-       * @returns {any}
-       */
-      /**
-       * @callback core$fetch$unzip
-       * @param {any} to
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$fetch
-       * @param {string} from
-       * @returns {{
-       *    json: core$fetch$json,
-       *    read: core$fetch$read,
-       *    stream: core$fetch$stream,
-       *    unzip: core$fetch$unzip
-       * }}
-       */
       fetch: (from) => {
          const link = new URL(from).openConnection();
          link.setDoOutput(true);
@@ -314,88 +204,6 @@
             throw code;
          }
       },
-      /**
-       * @callback core$file$add
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$child
-       * @param {number} index
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$dir
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$file
-       * @param {...string} sub
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$flush
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$json
-       * @returns {any}
-       */
-      /**
-       * @callback core$file$parse
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$read
-       * @returns {string}
-       */
-      /**
-       * @callback core$file$remove
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$stream
-       * @returns {any}
-       */
-      /**
-       * @callback core$file$transfer
-       * @param {any} to
-       * @param {string} action
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$write
-       * @param {string} content
-       * @returns {core$file$}
-       */
-      /**
-       * @callback core$file$unzip
-       * @param {any} to
-       * @returns {core$file$}
-       */
-      /**
-       * @typedef {{
-       *    add: core$file$add,
-       *    child: core$file$child,
-       *    dir: core$file$dir,
-       *    exists: boolean,
-       *    file: core$file$file,
-       *    flush: core$file$flush,
-       *    io: any,
-       *    json: core$file$json,
-       *    parse: core$file$parse,
-       *    read: core$file$read,
-       *    remove: core$file$remove,
-       *    stream: core$file$stream,
-       *    transfer: core$file$transfer,
-       *    write: core$file$write,
-       *    unzip: core$file$unzip
-       * }} core$file$
-       */
-      /**
-       * @callback core$file
-       * @param {...string} path
-       * @returns {core$file$}
-       */
       file: (...path) => {
          const io = Paths.get(...path).normalize().toFile();
          const thing = {
@@ -481,11 +289,6 @@
          };
          return thing;
       },
-      /**
-       * @callback core$import
-       * @param {string} source
-       * @returns {any}
-       */
       import: (source) => {
          if (typeof source !== 'string') throw 'TypeError: Argument 1 must be of type "string"';
          if (source[0] === '@') {
@@ -493,10 +296,9 @@
          } else {
             const origin = core.module.state || core.root;
             const importer = core.root.file('import.js');
-            const path = origin.io.getPath().replace(/(\\)/g, '/');
             let result = null;
             core.session.export.push((output) => (result = output));
-            importer.write(`import * as output from '../../${path}'; core.export(output);`);
+            importer.write(`import * as output from '../../${origin.path}'; core.export(output);`);
             const state = core.module.state;
             core.module.state = origin;
             try {
@@ -505,7 +307,7 @@
                core.session.export.pop();
                return result;
             } catch (error) {
-               console.error(`An error occured while attempting to evaluate the "${path}" file!`);
+               console.error(`An error occured while attempting to evaluate the "${origin.path}" file!`);
                core.module.state = state;
                core.session.export.pop();
                throw error;
@@ -515,70 +317,6 @@
       get manager () {
          return manager;
       },
-      /**
-       * @callback core$module$action
-       * @param {any} player
-       * @param {string} option
-       * @param {string} key
-       * @returns {void}
-       */
-      /**
-       * @callback core$module$add
-       * @param {string} key
-       * @returns {void}
-       */
-      /**
-       * @callback core$module$download
-       * @param {string} key
-       * @returns {string}
-       */
-      /**
-       * @callback core$module$delete
-       * @param {string} key
-       * @returns {void}
-       */
-      /**
-       * @callback core$module$import
-       * @param {string} key
-       * @returns {any}
-       */
-      /**
-       * @callback core$module$latest
-       * @param {string} key
-       * @returns {{
-       *    name: string,
-       *    zipball_url: string,
-       *    tarball_url: string,
-       *    commit: {
-       *       sha: string,
-       *       url: string
-       *    },
-       *    node_id: string
-       * }}
-       */
-      /**
-       * @callback core$module$remove
-       * @param {string} key
-       * @returns {void}
-       */
-      /**
-       * @callback core$module$update
-       * @param {string} key
-       * @returns {void}
-       */
-      /**
-       * @typedef {{
-       *    action: core$module$action,
-       *    add: core$module$add,
-       *    delete: core$module$delete,
-       *    download: core$module$download,
-       *    import: core$module$import,
-       *    latest: core$module$latest,
-       *    list: core$module$list,
-       *    remove: core$module$remove,
-       *    update: core$module$update
-       * }} core$module
-       */
       module: {
          action: (player, option, key) => {
             key = key.toLowerCase();
@@ -695,12 +433,6 @@
             }
          }
       },
-      /**
-       * @callback core$output
-       * @param {any} object
-       * @param {boolean} [nested]
-       * @returns {string}
-       */
       output: (object, nested) => {
          if (nested) {
             if (object && object.constructor === circular) {
@@ -765,12 +497,6 @@
       get root () {
          return core.file(core.plugin.getDataFolder().getPath().replace(/[\\]/g, '/'));
       },
-      /**
-       * @callback core$serialize
-       * @param {any} object
-       * @param {boolean} [nullify]
-       * @param {any[]} [nodes]
-       */
       serialize: (object, nullify, nodes) => {
          if (object === null || object !== 'object') {
             return object;
@@ -785,20 +511,6 @@
             return output;
          }
       },
-      /**
-       * @callback core$session$export
-       * @param {any} value
-       * @returns {void}
-       */
-      /**
-       * @typedef {{
-       *    command: any,
-       *    data: any,
-       *    event: any,
-       *    export: core$session$export[],
-       *    module: any
-       * }} core$session
-       */
       session: {
          command: {},
          data: {},
@@ -808,25 +520,15 @@
             return core.data('modules');
          }
       },
-      /**
-       * @callback core$send
-       * @param {any} player
-       * @param {string} message
-       * @param {boolean} [action]
-       * @returns {core$file$}
-       */
       send: (player, message, action) => {
          const limit = action ? 128 : 2048;
          message.length > limit && (message = `${message.slice(0, limit - 3)}...`);
          if (action) version === 'modern' && player.sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(message));
          else player.sendMessage(message);
       },
-      /**
-       * @callback core$unzip
-       * @param {any} from
-       * @param {any} to
-       * @returns {core$file$}
-       */
+      type: (name) => {
+         return Java.type(name);
+      },
       unzip: (from, to) => {
          const stream = new ZipInputStream(from);
          try {
@@ -1018,12 +720,47 @@
       }
    });
 
+   const master = 'https://raw.githubusercontent.com/grakkit/core/master';
+
    try {
-      trusted = core.fetch('https://raw.githubusercontent.com/grakkit/core/master/modules.json').json();
+      trusted = core.fetch(`${master}/modules.json`).json();
    } catch (error) {
+      console.log('Downloading official module list...');
       console.error('An error occured while attempting to download the official module list!');
       trusted = [];
    }
 
-   core.root.file('user.js').add().parse();
+   try {
+      console.log('Downloading typescript definition files...');
+      [ 'classes', 'core', 'events', 'types' ].map((name) => `${name}.d.ts`).forEach((name) => {
+         const target = core.root.file('dict', name);
+         target.add().write(core.fetch(`${master}/dict/${name}`).read());
+      });
+   } catch (error) {
+      console.error('An error occured while attempting to download the typescript definiton files!');
+   }
+
+   const user = core.root.file('user.js');
+   try {
+      const content = [
+         "/** @type {import('./dict/core').core} */ const core = global.core;",
+         "/** @type {import('./dict/classes').Server} */ const server = global.server;",
+         ''
+      ];
+      user.exists || user.add().write(content.join('\n'));
+      user.parse();
+   } catch (error) {
+      console.error(`An error occured while attempting to evaluate the "${user.path}" file!`);
+   }
+
+   const scripts = core.root.file('scripts').dir().io.listFiles();
+   scripts &&
+      scripts.forEach((io) => {
+         const script = core.file(io.getPath());
+         try {
+            script.parse();
+         } catch (error) {
+            console.error(`An error occured while attempting to evaluate the "${script.path}" file!`);
+         }
+      });
 })();
