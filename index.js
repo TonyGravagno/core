@@ -4,6 +4,7 @@
    const FileInputStream = Java.type('java.io.FileInputStream');
    const FileOutputStream = Java.type('java.io.FileOutputStream');
    const Files = Java.type('java.nio.file.Files');
+   const HandlerList = Java.type('org.bukkit.event.HandlerList');
    const Listener = Java.extend(Java.type('org.bukkit.event.Listener'), {});
    const Paths = Java.type('java.nio.file.Paths');
    const Scanner = Java.type('java.util.Scanner');
@@ -59,7 +60,8 @@
                      return false;
                   } else {
                      try {
-                        (core.session.command[options.name].execute || (() => {}))(player, ...args);
+                        const method = eval('core').session.command[options.name].execute || (() => {});
+                        method(player, ...args);
                         return true;
                      } catch (error) {
                         console.error(`An error occured while attempting to execute the "${name}" command!`);
@@ -70,7 +72,8 @@
                },
                tabComplete: (player, name, args) => {
                   try {
-                     const results = (core.session.command[options.name].tabComplete || (() => {}))(player, ...args);
+                     const method = eval('core').session.command[options.name].tabComplete || (() => {});
+                     const results = method(player, ...args);
                      if (!results) {
                         return [];
                      } else if (typeof results === 'string') {
@@ -172,8 +175,12 @@
             }
          });
       },
-      export: (object) => {
-         (core.session.export.slice(-1)[0] || (() => {}))(object);
+      export: (object, file) => {
+         if (file) {
+            (core.session.export.file.slice(-1)[0] || (() => {}))(object);
+         } else {
+            (core.session.export.module.slice(-1)[0] || (() => {}))(object);
+         }
       },
       fetch: (from) => {
          const link = new URL(from).openConnection();
@@ -212,8 +219,8 @@
                io.createNewFile();
                return thing;
             },
-            child: (index) => {
-               return io.listFiles()[index] ? core.file(io.listFiles()[index].getPath()) : null;
+            get children () {
+               return [ ...(io.listFiles() || []) ].map((sub) => core.file(sub.getPath()));
             },
             dir: () => {
                core.chain(io, (io, loop) => {
@@ -245,6 +252,9 @@
                } catch (error) {
                   return null;
                }
+            },
+            get name () {
+               return io.getName();
             },
             parse: () => {
                io.exists() &&
@@ -293,26 +303,55 @@
          return thing;
       },
       import: (source) => {
-         if (typeof source !== 'string') throw 'TypeError: Argument 1 must be of type "string"';
          if (source[0] === '@') {
-            return core.module.import(source.slice(1));
-         } else {
-            const origin = core.module.state || core.root;
-            const importer = core.root.file('import.js');
-            let result = null;
-            core.session.export.push((output) => (result = output));
-            importer.write(`import * as output from '../../${origin.path}'; core.export(output);`);
-            const state = core.module.state;
-            core.module.state = origin;
+            const key = source.slice(1);
+            const folder = core.root.file('modules', key);
+            let info;
             try {
-               importer.parse();
-               core.module.state = state;
-               core.session.export.pop();
+               info = folder.file('package.json').json() || {};
+            } catch (error) {
+               info = {};
+            }
+            const file = folder.file(info.main || 'index.js');
+            const state = core.session.origin;
+            let result = null;
+            core.session.origin = file.file('..');
+            core.session.export.module.push((output) => (result = output));
+            try {
+               core.import(`./${file.name}`);
+               core.session.export.module.pop();
+               core.session.origin = state;
                return result;
             } catch (error) {
-               console.error(`An error occured while attempting to evaluate the "${origin.path}" file!`);
-               core.module.state = state;
-               core.session.export.pop();
+               console.error(`An error occured while attempting to evaluate the "${key}" module!`);
+               core.session.export.module.pop();
+               core.session.origin = state;
+               throw error;
+            }
+         } else {
+            const file = core.session.origin.file(source);
+            const uuid = java.util.UUID.randomUUID().toString();
+            const importer = core.root.file(`import.js-${uuid}`);
+            const exporter = file.file(`../${file.name}-${uuid}`);
+            file.transfer(exporter.io, 'copy');
+            importer.add().write(`import * as output from '../../${exporter.path}'; core.export(output, true);`);
+            const state = core.session.origin;
+            let result = null;
+            core.session.origin = file.file('..');
+            core.session.export.file.push((output) => (result = output));
+            try {
+               importer.parse();
+               core.session.export.file.pop();
+               core.session.origin = state;
+               importer.remove();
+               exporter.remove();
+               return result;
+            } catch (error) {
+               console.error(`An error occured while attempting to evaluate the "${file.path}" file!`);
+               core.session.export.file.pop();
+               core.session.origin = state;
+               importer.remove();
+               exporter.remove();
                throw error;
             }
          }
@@ -347,7 +386,7 @@
                      break;
                   default:
                      core.send(player, '§cAn unexpected error occured!');
-                     console.error(error.stack || error);
+                     console.error(error.stack || error.message || error);
                      break;
                }
             }
@@ -371,46 +410,17 @@
                   try {
                      const from = core.fetch(latest.zipball_url).unzip(core.root.file('downloads', key).io);
                      core.module.delete(key);
-                     from.child(0).transfer(core.root.file('modules', key).io, 'move').remove();
+                     from.children[0].transfer(core.root.file('modules', key).io, 'move').remove();
                      return latest.name;
                   } catch (error) {
                      core.root.file('downloads', key).remove();
                      console.error(`An error occured while attempting to download the "${key}" repository!`);
-                     console.error(error.stack || error);
+                     console.error(error.stack || error.message || error);
                      throw 'module-download-failed';
                   }
                }
             } else {
                throw 'module-not-available';
-            }
-         },
-         import: (key) => {
-            if (core.session.module[key]) {
-               return core.session.module[key];
-            } else {
-               const folder = core.root.file('modules', key);
-               let info;
-               try {
-                  info = folder.file('package.json').json() || {};
-               } catch (error) {
-                  info = {};
-               }
-               let output;
-               core.session.export.push((value) => (output = value));
-               const main = folder.file(info.main || 'index.js');
-               const state = core.module.state;
-               core.module.state = main;
-               try {
-                  main.parse();
-                  core.module.state = state;
-                  core.session.export.pop();
-                  return output;
-               } catch (error) {
-                  console.error(`An error occured while attempting to evaluate the "${key}" module!`);
-                  core.module.state = state;
-                  core.session.export.pop();
-                  throw error;
-               }
             }
          },
          latest: (key) => {
@@ -494,6 +504,17 @@
       get plugin () {
          return plugin;
       },
+      refresh: (disable) => {
+         HandlerList.unregisterAll(core.plugin);
+         server.getScheduler().cancelTasks(core.plugin);
+         Object.keys(core.session.data).forEach((path) => {
+            const data = JSON.stringify(core.serialize(core.session.data[path], true));
+            core.root.file('data', `${path}.json`).add().write(data);
+         });
+         for (let key in global) delete global[key];
+         core.session.origin = core.root;
+         disable || core.import('index.js');
+      },
       get registry () {
          return registry;
       },
@@ -518,7 +539,7 @@
          command: {},
          data: {},
          event: {},
-         export: [],
+         export: { file: [], module: [] },
          get module () {
             return core.data('modules');
          }
@@ -565,6 +586,8 @@
          return version;
       }
    };
+
+   core.session.origin = core.root;
 
    Object.assign(global, { core: core, global: global, server: server });
 
@@ -689,15 +712,19 @@
             switch (action) {
                case 'refresh':
                   core.send(player, '§7Refreshing...');
-                  manager.disablePlugin(plugin);
-                  manager.enablePlugin(plugin);
+                  core.refresh();
                   core.send(player, '§7Refresh Complete.');
                   break;
                case 'update':
                   core.send(player, '§7Updating...');
-                  core.root.file('index.js').remove();
-                  server.reload();
-                  core.send(player, '§7Update Complete.');
+                  try {
+                     core.root.file('index.js').write(core.fetch(`${master}/index.min.js`).read());
+                     core.refresh();
+                     core.send(player, '§7Update Complete.');
+                  } catch (error) {
+                     core.send(player, '§cUpdate Failed!');
+                     throw error;
+                  }
                   break;
                default:
                   core.send(player, '§cThat action is invalid!');
@@ -715,54 +742,56 @@
    });
 
    core.event(version === 'modern' ? 'org.bukkit.event.server.PluginDisableEvent' : 'PLUGIN_DISABLE', (event) => {
-      if (plugin === event.getPlugin()) {
-         Object.keys(core.session.data).forEach((path) => {
-            const data = JSON.stringify(core.serialize(core.session.data[path], true));
-            core.root.file('data', `${path}.json`).add().write(data);
-         });
-      }
+      plugin === event.getPlugin() && core.refresh(true);
    });
 
    const master = 'https://raw.githubusercontent.com/grakkit/core/master';
 
    try {
+      console.log('Downloading official module list...');
       trusted = core.fetch(`${master}/modules.json`).json();
    } catch (error) {
-      console.log('Downloading official module list...');
       console.error('An error occured while attempting to download the official module list!');
-      trusted = [];
+      console.error(error.stack || error.message || error);
    }
 
-   try {
-      core.root.file('dict').exists ||
-         [ 'classes', 'core', 'events', 'types' ].map((name) => `${name}.d.ts`).forEach((name) => {
-            const target = core.root.file('dict', name);
-            console.log(`Downloading typescript definition file... ${target.path}`);
+   [ 'classes.d.ts', 'core.d.ts', 'events.d.ts', 'types.d.ts' ].forEach((name) => {
+      const target = core.root.file('dict', name);
+      if (!target.exists) {
+         try {
+            console.log(`Downloading dictionary file... ${target.path}`);
             target.add().write(core.fetch(`${master}/dict/${name}`).read());
-         });
-   } catch (error) {
-      console.error('An error occured while attempting to download a typescript definiton file!');
-   }
+         } catch (error) {
+            console.error(`An error occured while attempting to download the "${target.path}" dictionary file!`);
+            console.error(error.stack || error.message || error);
+         }
+      }
+   });
 
    const user = core.root.file('user.js');
    user.exists ||
       user
          .add()
          .write(
-            [
-               "/** @type {import('./dict/core').core} */ const core = global.core;",
-               "/** @type {import('./dict/classes').Server} */ const server = global.server;",
-               ''
-            ].join('\n')
+            "/** @type {import('./dict/core').core} */ const core = global.core;\n/** @type {import('./dict/classes').Server} */ const server = global.server;\n"
          );
+   try {
+      console.log(`Evaluating... ${user.path}`);
+      core.import(user.name);
+   } catch (error) {
+      console.error(error.stack || error.message || error);
+   }
 
-   [ user.io, ...(core.root.file('scripts').dir().io.listFiles() || []) ].forEach((io) => {
-      const script = core.file(io.getPath());
+   const scripts = core.root.file('scripts').dir();
+   core.session.origin = scripts;
+   scripts.children.forEach((io) => {
+      const file = core.file(io.getPath());
       try {
-         console.log(`Evaluating... ${script.path}`);
-         script.parse();
+         console.log(`Evaluating... ${file.path}`);
+         core.import(file.name);
       } catch (error) {
-         console.error(`An error occured while attempting to evaluate the "${script.path}" file!`);
+         console.error(error.stack || error.message || error);
       }
    });
+   core.session.origin = core.root;
 })();
