@@ -33,6 +33,7 @@
 
    const global = globalThis;
    const server = Bukkit.getServer();
+   const master = 'https://raw.githubusercontent.com/grakkit/core/master';
 
    const manager = server.getPluginManager();
    const plugin = manager.getPlugin('grakkit');
@@ -44,6 +45,7 @@
 
    const circular = function () {};
    let trusted = [];
+
    /** @type {import('./dict/core').core} */
    const core = {
       chain: (base, modifier) => {
@@ -52,16 +54,16 @@
       },
       command: (options) => {
          core.session.command[options.name] = { execute: options.execute, tabComplete: options.tabComplete };
-         if (!registry.getCommand(options.name)) {
-            const command = new Command(options.name, {
+         const command =
+            registry.getCommand(options.name) ||
+            new Command(options.name, {
                execute: (player, name, args) => {
                   if (options.permission && !player.hasPermission(options.permission)) {
                      options.error && player.sendMessage(options.error);
                      return false;
                   } else {
                      try {
-                        const method = eval('core').session.command[options.name].execute || (() => {});
-                        method(player, ...args);
+                        (core.session.command[options.name].execute || (() => {}))(player, ...args);
                         return true;
                      } catch (error) {
                         console.error(`An error occured while attempting to execute the "${name}" command!`);
@@ -72,8 +74,7 @@
                },
                tabComplete: (player, name, args) => {
                   try {
-                     const method = eval('core').session.command[options.name].tabComplete || (() => {});
-                     const results = method(player, ...args);
+                     const results = (core.session.command[options.name].tabComplete || (() => {}))(player, ...args);
                      if (!results) {
                         return [];
                      } else if (typeof results === 'string') {
@@ -90,11 +91,11 @@
                   }
                }
             });
-            options.error && command.setPermissionMessage(options.error);
-            options.aliases && command.setAliases([ ...options.aliases ]);
-            options.permission && command.setPermission(options.permission);
-            registry.register(options.fallback || 'grakkit', command);
-         }
+         command.setAliases([ ...(options.aliases || []) ]);
+         command.setPermission(options.permission || null);
+         command.setPermissionMessage(options.error || null);
+         registry.register(options.fallback || 'grakkit', command);
+         core.session.command[options.name].instance = command;
       },
       get context () {
          return context;
@@ -356,6 +357,205 @@
             }
          }
       },
+      init: () => {
+         core.session.origin = core.root;
+         Object.assign(global, { core: core, global: global, server: server });
+         core.command({
+            name: 'js',
+            permission: 'grakkit.command.js',
+            error: '§cYou lack the permission §4(grakkit.command.js) §cto use that command!',
+            execute: (player, ...args) => {
+               const self = global.hasOwnProperty('self');
+               try {
+                  self || (global.self = player);
+                  const result = core.eval(args.join(' '));
+                  self || delete global.self;
+                  core.send(player, `§7${core.output(result)}`);
+               } catch (error) {
+                  self || delete global.self;
+                  core.send(player, `§c${core.error(error)}`);
+               }
+            },
+            tabComplete: (player, ...args) => {
+               const input = args.slice(-1)[0];
+               const single = /(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
+               const filter = /.*(\!|\^|\)|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
+               let index = 0;
+               let string = null;
+               let nodes = input;
+               while (index < input.length) {
+                  const char = input[index];
+                  if (char === string) string = null;
+                  else if ([ "'", '"', '`' ].includes(char)) string = char;
+                  else if (!string && single.test(char)) nodes = input.slice(index + 1);
+                  ++index;
+               }
+               index = 0;
+               nodes = nodes.replace(/(\[)|(\]\.)/g, '.').split('.');
+               let context = global;
+               while (index < nodes.length - 1) {
+                  let node = nodes[index++];
+                  [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
+                  node.length && node[0].match(/[0-9]/g) && (node = Number(node));
+                  if (context[node]) context = context[node];
+                  else if (context === global && node === 'self') context = player;
+                  else index = Infinity;
+               }
+               if (index === nodes.length - 1) {
+                  const base = (input.match(filter) || [ '' ])[0] + input.replace(filter, '');
+                  let segment = nodes.slice(-1)[0];
+                  [ "'", '"', '`' ].includes(segment[0]) && (segment = segment.slice(1, -1));
+                  const properties = Object.getOwnPropertyNames(context);
+                  if (context === global && !properties.includes('self')) properties.push('self');
+                  if (typeof context.length === 'number' && [ 'object', 'function' ].includes(typeof context[0])) {
+                     properties.push(...Array(context.length).join(' ').split(' ').map((value, index) => `${index}`));
+                  }
+                  return properties
+                     .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
+                     .map((key) => {
+                        let property = '';
+                        if (key.length && key[0].match(/[0-9]/g)) property = `[${key}]`;
+                        else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) return null;
+                        else property = `.${key}`;
+                        const path = base.split(property[0]);
+                        const name = property.slice(1);
+                        if (!base || !base.match(/[\.\[]/g)) return base.split(single).slice(0, -1).join('') + name;
+                        else if (context === global) return base + name;
+                        else if (name.includes(path.slice(-1)[0]))
+                           return path.slice(0, -1).join(property[0]) + property;
+                     })
+                     .filter((property) => property);
+               }
+            }
+         });
+         core.command({
+            name: 'module',
+            permission: 'grakkit.command.module',
+            error: '§cYou lack the permission §4(grakkit.command.module) §cto use that command!',
+            execute: (player, option, key) => {
+               if (option) {
+                  option = option.toLowerCase();
+                  if (option === 'list') {
+                     core.send(player, `§7Installed modules: ${core.output(Object.keys(core.module.list))}`);
+                  } else if ([ 'add', 'remove', 'update' ].includes(option)) {
+                     if (key === '*') {
+                        if (option === 'add') {
+                           core.send(player, '§7One sec, just need to download the entire GitHub database...');
+                        } else {
+                           Object.keys(core.module.list).map((key) => core.module.action(player, option, key));
+                        }
+                     } else if (key) {
+                        core.module.action(player, option, key.toLowerCase());
+                     } else {
+                        core.send(player, '§cYou must specify a repository!');
+                     }
+                  } else {
+                     core.send(player, '§cThat option is invalid!');
+                  }
+               } else {
+                  core.send(player, '§cYou must specify an option!');
+               }
+            },
+            tabComplete: (player, ...args) => {
+               switch (args.length) {
+                  case 1:
+                     return [ 'add', 'list', 'remove', 'update' ].filter((value) => value.includes(args[0]));
+                  case 2:
+                     switch (args[0]) {
+                        case 'add':
+                           return trusted.filter((value) => value.includes(args[1]));
+                        case 'remove':
+                        case 'update':
+                           return [ '*', ...Object.keys(core.module.list).filter((value) => value.includes(args[1])) ];
+                     }
+               }
+            }
+         });
+         core.command({
+            name: 'grakkit',
+            permission: 'grakkit.command.grakkit',
+            error: '§cYou lack the permission §4(grakkit.command.grakkit) §cto use that command!',
+            execute: (player, action) => {
+               if (action) {
+                  switch (action) {
+                     case 'refresh':
+                        core.send(player, '§7Refreshing...');
+                        core.refresh();
+                        core.send(player, '§7Refresh Complete.');
+                        break;
+                     case 'update':
+                        core.send(player, '§7Updating...');
+                        try {
+                           core.root.file('index.js').write(core.fetch(`${master}/index.min.js`).read());
+                           core.refresh();
+                           core.send(player, '§7Update Complete.');
+                        } catch (error) {
+                           core.send(player, '§cUpdate Failed!');
+                           throw error;
+                        }
+                        break;
+                     default:
+                        core.send(player, '§cThat action is invalid!');
+                        break;
+                  }
+               } else {
+                  core.send(player, '§cYou must specify an action!');
+               }
+            },
+            tabComplete: (player, ...args) => {
+               if (args.length === 1) {
+                  return [ 'refresh', 'update' ].filter((value) => value.includes(args[0]));
+               }
+            }
+         });
+         core.event(version === 'modern' ? 'org.bukkit.event.server.PluginDisableEvent' : 'PLUGIN_DISABLE', (event) => {
+            plugin === event.getPlugin() && core.refresh(true);
+         });
+         try {
+            console.log('Downloading official module list...');
+            trusted = core.fetch(`${master}/modules.json`).json();
+         } catch (error) {
+            console.error('An error occured while attempting to download the official module list!');
+            console.error(error.stack || error.message || error);
+         }
+         [ 'classes.d.ts', 'core.d.ts', 'events.d.ts', 'types.d.ts' ].forEach((name) => {
+            const target = core.root.file('dict', name);
+            if (!target.exists) {
+               try {
+                  console.log(`Downloading dictionary file... ${target.path}`);
+                  target.add().write(core.fetch(`${master}/dict/${name}`).read());
+               } catch (error) {
+                  console.error(`An error occured while attempting to download the "${target.path}" dictionary file!`);
+                  console.error(error.stack || error.message || error);
+               }
+            }
+         });
+         const user = core.root.file('user.js');
+         user.exists ||
+            user
+               .add()
+               .write(
+                  "/** @type {import('./dict/core').core} */ const core = global.core;\n/** @type {import('./dict/classes').Server} */ const server = global.server;\n"
+               );
+         try {
+            console.log(`Evaluating... ${user.path}`);
+            core.import(user.name);
+         } catch (error) {
+            console.error(error.stack || error.message || error);
+         }
+         const scripts = core.root.file('scripts').dir();
+         core.session.origin = scripts;
+         scripts.children.forEach((io) => {
+            const file = core.file(io.getPath());
+            try {
+               console.log(`Evaluating... ${file.path}`);
+               core.import(file.name);
+            } catch (error) {
+               console.error(error.stack || error.message || error);
+            }
+         });
+         core.session.origin = core.root;
+      },
       get manager () {
          return manager;
       },
@@ -505,15 +705,16 @@
          return plugin;
       },
       refresh: (disable) => {
-         HandlerList.unregisterAll(core.plugin);
-         server.getScheduler().cancelTasks(core.plugin);
+         HandlerList.unregisterAll(plugin);
+         server.getScheduler().cancelTasks(plugin);
+         Object.values(core.session.command).forEach((command) => command.instance.unregister(registry));
          Object.keys(core.session.data).forEach((path) => {
             const data = JSON.stringify(core.serialize(core.session.data[path], true));
             core.root.file('data', `${path}.json`).add().write(data);
          });
+         core.session = { command: {}, data: {}, event: {}, export: { file: [], module: [] } };
          for (let key in global) delete global[key];
-         core.session.origin = core.root;
-         disable || core.import('index.js');
+         disable || core.init();
       },
       get registry () {
          return registry;
@@ -586,212 +787,5 @@
          return version;
       }
    };
-
-   core.session.origin = core.root;
-
-   Object.assign(global, { core: core, global: global, server: server });
-
-   core.command({
-      name: 'js',
-      permission: 'grakkit.command.js',
-      error: '§cYou lack the permission §4(grakkit.command.js) §cto use that command!',
-      execute: (player, ...args) => {
-         const self = global.hasOwnProperty('self');
-         try {
-            self || (global.self = player);
-            const result = core.eval(args.join(' '));
-            self || delete global.self;
-            core.send(player, `§7${core.output(result)}`);
-         } catch (error) {
-            self || delete global.self;
-            core.send(player, `§c${core.error(error)}`);
-         }
-      },
-      tabComplete: (player, ...args) => {
-         const input = args.slice(-1)[0];
-         const single = /(\!|\^|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
-         const filter = /.*(\!|\^|\)|\&|\*|\(|\-|\+|\=|\{|\||\;|\:|\,|\?|\/)/;
-         let index = 0;
-         let string = null;
-         let nodes = input;
-         while (index < input.length) {
-            const char = input[index];
-            if (char === string) string = null;
-            else if ([ "'", '"', '`' ].includes(char)) string = char;
-            else if (!string && single.test(char)) nodes = input.slice(index + 1);
-            ++index;
-         }
-         index = 0;
-         nodes = nodes.replace(/(\[)|(\]\.)/g, '.').split('.');
-         let context = global;
-         while (index < nodes.length - 1) {
-            let node = nodes[index++];
-            [ "'", '"', '`' ].includes(node[0]) && (node = node.slice(1, -1));
-            node.length && node[0].match(/[0-9]/g) && (node = Number(node));
-            if (context[node]) context = context[node];
-            else if (context === global && node === 'self') context = player;
-            else index = Infinity;
-         }
-         if (index === nodes.length - 1) {
-            const base = (input.match(filter) || [ '' ])[0] + input.replace(filter, '');
-            let segment = nodes.slice(-1)[0];
-            [ "'", '"', '`' ].includes(segment[0]) && (segment = segment.slice(1, -1));
-            const properties = Object.getOwnPropertyNames(context);
-            if (context === global && !properties.includes('self')) properties.push('self');
-            if (typeof context.length === 'number' && [ 'object', 'function' ].includes(typeof context[0])) {
-               properties.push(...Array(context.length).join(' ').split(' ').map((value, index) => `${index}`));
-            }
-            return properties
-               .filter((key) => key.toLowerCase().includes(segment.toLowerCase()))
-               .map((key) => {
-                  let property = '';
-                  if (key.length && key[0].match(/[0-9]/g)) property = `[${key}]`;
-                  else if (key.match(/[^0-9A-Za-z|\_|\$]/g)) return null;
-                  else property = `.${key}`;
-                  const path = base.split(property[0]);
-                  const name = property.slice(1);
-                  if (!base || !base.match(/[\.\[]/g)) return base.split(single).slice(0, -1).join('') + name;
-                  else if (context === global) return base + name;
-                  else if (name.includes(path.slice(-1)[0])) return path.slice(0, -1).join(property[0]) + property;
-               })
-               .filter((property) => property);
-         }
-      }
-   });
-
-   core.command({
-      name: 'module',
-      permission: 'grakkit.command.module',
-      error: '§cYou lack the permission §4(grakkit.command.module) §cto use that command!',
-      execute: (player, option, key) => {
-         if (option) {
-            option = option.toLowerCase();
-            if (option === 'list') {
-               core.send(player, `§7Installed modules: ${core.output(Object.keys(core.module.list))}`);
-            } else if ([ 'add', 'remove', 'update' ].includes(option)) {
-               if (key === '*') {
-                  if (option === 'add') {
-                     core.send(player, '§7One sec, just need to download the entire GitHub database...');
-                  } else {
-                     Object.keys(core.module.list).map((key) => core.module.action(player, option, key));
-                  }
-               } else if (key) {
-                  core.module.action(player, option, key.toLowerCase());
-               } else {
-                  core.send(player, '§cYou must specify a repository!');
-               }
-            } else {
-               core.send(player, '§cThat option is invalid!');
-            }
-         } else {
-            core.send(player, '§cYou must specify an option!');
-         }
-      },
-      tabComplete: (player, ...args) => {
-         switch (args.length) {
-            case 1:
-               return [ 'add', 'list', 'remove', 'update' ].filter((value) => value.includes(args[0]));
-            case 2:
-               switch (args[0]) {
-                  case 'add':
-                     return trusted.filter((value) => value.includes(args[1]));
-                  case 'remove':
-                  case 'update':
-                     return [ '*', ...Object.keys(core.module.list).filter((value) => value.includes(args[1])) ];
-               }
-         }
-      }
-   });
-
-   core.command({
-      name: 'grakkit',
-      permission: 'grakkit.command.grakkit',
-      error: '§cYou lack the permission §4(grakkit.command.grakkit) §cto use that command!',
-      execute: (player, action) => {
-         if (action) {
-            switch (action) {
-               case 'refresh':
-                  core.send(player, '§7Refreshing...');
-                  core.refresh();
-                  core.send(player, '§7Refresh Complete.');
-                  break;
-               case 'update':
-                  core.send(player, '§7Updating...');
-                  try {
-                     core.root.file('index.js').write(core.fetch(`${master}/index.min.js`).read());
-                     core.refresh();
-                     core.send(player, '§7Update Complete.');
-                  } catch (error) {
-                     core.send(player, '§cUpdate Failed!');
-                     throw error;
-                  }
-                  break;
-               default:
-                  core.send(player, '§cThat action is invalid!');
-                  break;
-            }
-         } else {
-            core.send(player, '§cYou must specify an action!');
-         }
-      },
-      tabComplete: (player, ...args) => {
-         if (args.length === 1) {
-            return [ 'refresh', 'update' ].filter((value) => value.includes(args[0]));
-         }
-      }
-   });
-
-   core.event(version === 'modern' ? 'org.bukkit.event.server.PluginDisableEvent' : 'PLUGIN_DISABLE', (event) => {
-      plugin === event.getPlugin() && core.refresh(true);
-   });
-
-   const master = 'https://raw.githubusercontent.com/grakkit/core/master';
-
-   try {
-      console.log('Downloading official module list...');
-      trusted = core.fetch(`${master}/modules.json`).json();
-   } catch (error) {
-      console.error('An error occured while attempting to download the official module list!');
-      console.error(error.stack || error.message || error);
-   }
-
-   [ 'classes.d.ts', 'core.d.ts', 'events.d.ts', 'types.d.ts' ].forEach((name) => {
-      const target = core.root.file('dict', name);
-      if (!target.exists) {
-         try {
-            console.log(`Downloading dictionary file... ${target.path}`);
-            target.add().write(core.fetch(`${master}/dict/${name}`).read());
-         } catch (error) {
-            console.error(`An error occured while attempting to download the "${target.path}" dictionary file!`);
-            console.error(error.stack || error.message || error);
-         }
-      }
-   });
-
-   const user = core.root.file('user.js');
-   user.exists ||
-      user
-         .add()
-         .write(
-            "/** @type {import('./dict/core').core} */ const core = global.core;\n/** @type {import('./dict/classes').Server} */ const server = global.server;\n"
-         );
-   try {
-      console.log(`Evaluating... ${user.path}`);
-      core.import(user.name);
-   } catch (error) {
-      console.error(error.stack || error.message || error);
-   }
-
-   const scripts = core.root.file('scripts').dir();
-   core.session.origin = scripts;
-   scripts.children.forEach((io) => {
-      const file = core.file(io.getPath());
-      try {
-         console.log(`Evaluating... ${file.path}`);
-         core.import(file.name);
-      } catch (error) {
-         console.error(error.stack || error.message || error);
-      }
-   });
-   core.session.origin = core.root;
+   core.init();
 })();
