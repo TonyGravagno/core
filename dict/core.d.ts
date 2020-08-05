@@ -31,10 +31,10 @@ export interface core {
          name: string;
          error?: string;
          aliases?: string[];
-         execute: (player: any, ...args: string[]) => void;
+         execute: (player: Player, ...args: string[]) => void;
          fallback?: string;
          permission?: string;
-         execute: (player: any, ...args: string[]) => string[];
+         execute: (player: Player, ...args: string[]) => string[];
       }
    ) => void;
    /** The main polyglot context. */
@@ -63,7 +63,7 @@ export interface core {
    };
    /** Returns an object with various utility methods for operating on the filesystem. */
    file: (...path: string[]) => core$file;
-   /** Imports a module, prefixed with `@`, or a file relative to the current file. */
+   /** Imports a module, prefixed with `@`, or a file relative to the current origin. */
    import: (source: string) => any;
    /** The server's plugin manager. */
    manager: PluginManager;
@@ -76,8 +76,6 @@ export interface core {
       delete: (key: string) => void;
       /** Downloads a module's latest release to the server and returns that release's tag name. */
       download: (key: string) => string;
-      /** Imports a module and returns its exported content. */
-      import: (key: string) => any;
       /** Returns the info on the latest release of a module. */
       latest: (
          key: string
@@ -100,18 +98,21 @@ export interface core {
    output: (object: any, nested?: boolean) => string;
    /** The grakkit plugin instance. */
    plugin: Plugin;
+   /** Unregisters all event listeners, cancels all tasks, unreferences all global objects, and if `disable` is falsey, re-evaluates the index file. */
+   refresh: (disable?: boolean) => void;
    /** The command map used to register custom commands. */
    registry: CommandMap;
    /** A file wrapper for this plugin's root folder. */
    root: core$file;
    /** Removes circular references from an object recursively, replacing them with circular markers or `null` if `nullify` is true. */
-   serialize: (object: any, nullify: boolean, ...nodes?: any[]) => a;
+   serialize: (object: any, nullify: boolean, ...nodes?: any[]) => any;
    session: {
       command: any;
       data: any;
       event: any;
-      export: ((value: any) => void)[];
+      export: { file: ((value: any) => void)[]; module: ((value: any) => void)[] };
       module: any;
+      origin: core$file;
    };
    /** Sends a message to the given player in chat, or in the action bar if `action` is true. */
    send: (player: Player, message: string, action: boolean) => void;
@@ -126,7 +127,7 @@ type core$file = {
    /** Makes a file at the current path if one does not exist. */
    add: () => core$file;
    /** If the current path is a folder, gets the [index] child within it. */
-   child: (index: number) => core$file;
+   children: core$file[];
    /** Makes a folder at the current path if one does not exist. */
    dir: () => core$file;
    /** Whether a file or folder at the current path exists or not. */
@@ -139,6 +140,8 @@ type core$file = {
    io: File;
    /** Attempts to parse the current path as a JSON file. */
    json: () => any;
+   /** The name of the file or folder at the current path. */
+   name: string;
    /** Attempts to parse the current path as a JS file. */
    parse: () => core$file;
    /** The current path in string form. */
