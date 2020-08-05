@@ -31,10 +31,10 @@ export interface core {
          name: string;
          error?: string;
          aliases?: string[];
-         execute: (player: Player, ...args: string[]) => void;
+         execute?: (player: Player, ...args: string[]) => void;
          fallback?: string;
          permission?: string;
-         execute: (player: Player, ...args: string[]) => string[];
+         tabComplete?: (player: Player, ...args: string[]) => string[];
       }
    ) => void;
    /** The main polyglot context. */
@@ -65,6 +65,8 @@ export interface core {
    file: (...path: string[]) => core$file;
    /** Imports a module, prefixed with `@`, or a file relative to the current origin. */
    import: (source: string) => any;
+   /** Initializes the grakkit core. */
+   init: () => void;
    /** The server's plugin manager. */
    manager: PluginManager;
    module: {
@@ -98,14 +100,14 @@ export interface core {
    output: (object: any, nested?: boolean) => string;
    /** The grakkit plugin instance. */
    plugin: Plugin;
-   /** Unregisters all event listeners, cancels all tasks, unreferences all global objects, and if `disable` is falsey, re-evaluates the index file. */
+   /** Unregisters all event listeners, cancels all tasks, unreferences all global objects, and if `disable` is falsey, re-initializes the grakkit core. */
    refresh: (disable?: boolean) => void;
    /** The command map used to register custom commands. */
    registry: CommandMap;
    /** A file wrapper for this plugin's root folder. */
    root: core$file;
    /** Removes circular references from an object recursively, replacing them with circular markers or `null` if `nullify` is true. */
-   serialize: (object: any, nullify: boolean, ...nodes?: any[]) => any;
+   serialize: (object: any, nullify: boolean, ...nodes: any[]) => any;
    session: {
       command: any;
       data: any;
