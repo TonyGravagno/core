@@ -559,18 +559,7 @@
          } catch (error) {
             console.error(error.stack || error.message || error);
          }
-         const scripts = core.root.file('scripts').dir();
-         core.session.origin = scripts;
-         scripts.children.forEach((io) => {
-            const file = core.file(io.getPath());
-            try {
-               console.log(`Evaluating... ${file.path}`);
-               core.import(file.name);
-            } catch (error) {
-               console.error(error.stack || error.message || error);
-            }
-         });
-         core.session.origin = core.root;
+         core.root.file('scripts').dir().execute();
       },
       get manager () {
          return manager;
