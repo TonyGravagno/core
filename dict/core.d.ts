@@ -132,6 +132,8 @@ type core$file = {
    children: core$file[];
    /** Makes a folder at the current path if one does not exist. */
    dir: () => core$file;
+   /** If the current path is a folder, executes all scripts within it. */
+   execute: () => core$file;
    /** Whether a file or folder at the current path exists or not. */
    exists: boolean;
    /** Joins the current path and the given sub-path and creates a new file object with that path. */

@@ -231,6 +231,22 @@
                });
                return thing;
             },
+            execute: () => {
+               const origin = core.session.origin;
+               core.session.origin = thing;
+               thing.children.forEach((file) => {
+                  if (file.name.endsWith('.js')) {
+                     try {
+                        console.log(`Evaluating... ${file.path}`);
+                        core.import(file.name);
+                     } catch (error) {
+                        console.error(error.stack || error.message || error);
+                     }
+                  }
+               });
+               core.session.origin = origin;
+               return thing;
+            },
             get exists () {
                return io.exists();
             },
